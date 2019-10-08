@@ -2,20 +2,12 @@ package terraform
 
 import (
 	"bytes"
-	"encoding/gob"
 	"fmt"
 	"io"
 
 	"github.com/hashicorp/terraform-plugin-sdk/internal/configs"
 	"github.com/zclconf/go-cty/cty"
 )
-
-func init() {
-	gob.Register(make([]interface{}, 0))
-	gob.Register(make([]map[string]interface{}, 0))
-	gob.Register(make(map[string]interface{}))
-	gob.Register(make(map[string]string))
-}
 
 // Plan represents a single Terraform execution plan, which contains
 // all the information necessary to make an infrastructure change.
