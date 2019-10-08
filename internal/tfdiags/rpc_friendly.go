@@ -1,9 +1,5 @@
 package tfdiags
 
-import (
-	"encoding/gob"
-)
-
 type rpcFriendlyDiag struct {
 	Severity_ Severity
 	Summary_  string
@@ -52,8 +48,4 @@ func (d rpcFriendlyDiag) FromExpr() *FromExpr {
 	// RPC-friendly diagnostics cannot preserve expression information because
 	// expressions themselves are not RPC-friendly.
 	return nil
-}
-
-func init() {
-	gob.Register((*rpcFriendlyDiag)(nil))
 }
