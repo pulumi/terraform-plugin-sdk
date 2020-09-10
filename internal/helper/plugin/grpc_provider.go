@@ -338,7 +338,7 @@ func (s *GRPCProviderServer) UpgradeResourceState(ctx context.Context, req *prot
 // map[string]interface{}.
 // upgradeFlatmapState returns the json map along with the corresponding schema
 // version.
-func (s *GRPCProviderServer) upgradeFlatmapState(ctx context.Context, version int, m map[string]string, res *schema.Resource) (map[string]interface{}, int, error) {
+func UpgradeFlatmapState(ctx context.Context, version int, m map[string]string, res *schema.Resource, meta interface{}) (map[string]interface{}, int, error) {
 	// this will be the version we've upgraded so, defaulting to the given
 	// version in case no migration was called.
 	upgradedVersion := version
@@ -370,7 +370,7 @@ func (s *GRPCProviderServer) upgradeFlatmapState(ctx context.Context, version in
 				"schema_version": strconv.Itoa(version),
 			},
 		}
-		is, err := res.MigrateState(version, is, s.provider.Meta())
+		is, err := res.MigrateState(version, is, meta)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -410,7 +410,11 @@ func (s *GRPCProviderServer) upgradeFlatmapState(ctx context.Context, version in
 	return jsonMap, upgradedVersion, err
 }
 
-func (s *GRPCProviderServer) upgradeJSONState(ctx context.Context, version int, m map[string]interface{}, res *schema.Resource) (map[string]interface{}, error) {
+func (s *GRPCProviderServer) upgradeFlatmapState(ctx context.Context, version int, m map[string]string, res *schema.Resource) (map[string]interface{}, int, error) {
+	return UpgradeFlatmapState(ctx, version, m, res, s.provider.Meta())
+}
+
+func UpgradeJSONState(ctx context.Context, version int, m map[string]interface{}, res *schema.Resource, meta interface{}) (map[string]interface{}, error) {
 	var err error
 
 	for _, upgrader := range res.StateUpgraders {
@@ -418,7 +422,7 @@ func (s *GRPCProviderServer) upgradeJSONState(ctx context.Context, version int, 
 			continue
 		}
 
-		m, err = upgrader.Upgrade(ctx, m, s.provider.Meta())
+		m, err = upgrader.Upgrade(ctx, m, meta)
 		if err != nil {
 			return nil, err
 		}
@@ -428,9 +432,13 @@ func (s *GRPCProviderServer) upgradeJSONState(ctx context.Context, version int, 
 	return m, nil
 }
 
+func (s *GRPCProviderServer) upgradeJSONState(ctx context.Context, version int, m map[string]interface{}, res *schema.Resource) (map[string]interface{}, error) {
+	return UpgradeJSONState(ctx, version, m, res, s.provider.Meta())
+}
+
 // Remove any attributes no longer present in the schema, so that the json can
 // be correctly decoded.
-func (s *GRPCProviderServer) removeAttributes(v interface{}, ty cty.Type) {
+func RemoveAttributes(v interface{}, ty cty.Type) {
 	// we're only concerned with finding maps that corespond to object
 	// attributes
 	switch v := v.(type) {
@@ -439,7 +447,7 @@ func (s *GRPCProviderServer) removeAttributes(v interface{}, ty cty.Type) {
 		if ty.IsListType() || ty.IsSetType() {
 			eTy := ty.ElementType()
 			for _, eV := range v {
-				s.removeAttributes(eV, eTy)
+				RemoveAttributes(eV, eTy)
 			}
 		}
 		return
@@ -448,7 +456,7 @@ func (s *GRPCProviderServer) removeAttributes(v interface{}, ty cty.Type) {
 		if ty.IsMapType() {
 			eTy := ty.ElementType()
 			for _, eV := range v {
-				s.removeAttributes(eV, eTy)
+				RemoveAttributes(eV, eTy)
 			}
 			return
 		}
@@ -474,9 +482,13 @@ func (s *GRPCProviderServer) removeAttributes(v interface{}, ty cty.Type) {
 				continue
 			}
 
-			s.removeAttributes(attrV, attrTy)
+			RemoveAttributes(attrV, attrTy)
 		}
 	}
+}
+
+func (s *GRPCProviderServer) removeAttributes(v interface{}, ty cty.Type) {
+	RemoveAttributes(v, ty)
 }
 
 func (s *GRPCProviderServer) Stop(_ context.Context, _ *proto.Stop_Request) (*proto.Stop_Response, error) {
