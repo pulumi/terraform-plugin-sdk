@@ -6,648 +6,61 @@ import (
 	"fmt"
 	"os"
 	"reflect"
-	"regexp"
 	"sort"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/hashicorp/go-multierror"
-	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
-	"github.com/hashicorp/terraform-plugin-sdk/internal/plugin/discovery"
-	"github.com/hashicorp/terraform-plugin-sdk/terraform"
+	testinginterface "github.com/mitchellh/go-testing-interface"
+
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
 
 func init() {
-	testTesting = true
-
-	// TODO: Remove when we remove the guard on id checks
-	if err := os.Setenv("TF_ACC_IDONLY", "1"); err != nil {
-		panic(err)
-	}
-
 	if err := os.Setenv(TestEnvVar, "1"); err != nil {
 		panic(err)
 	}
 }
 
-// wrap the mock provider to implement TestProvider
-type resetProvider struct {
-	*terraform.MockResourceProvider
-	mu              sync.Mutex
-	TestResetCalled bool
-	TestResetError  error
-}
-
-func (p *resetProvider) TestReset() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.TestResetCalled = true
-	return p.TestResetError
-}
-
 func TestParallelTest(t *testing.T) {
 	mt := new(mockT)
-	ParallelTest(mt, TestCase{})
+
+	ParallelTest(mt, TestCase{IsUnitTest: true})
 
 	if !mt.ParallelCalled {
 		t.Fatal("Parallel() not called")
 	}
 }
 
-func TestTest(t *testing.T) {
-	t.Skip("test requires new provider implementation")
-
-	mp := &resetProvider{
-		MockResourceProvider: testProvider(),
-	}
-
-	mp.DiffReturn = nil
-
-	mp.ApplyFn = func(
-		info *terraform.InstanceInfo,
-		state *terraform.InstanceState,
-		diff *terraform.InstanceDiff) (*terraform.InstanceState, error) {
-		if !diff.Destroy {
-			return &terraform.InstanceState{
-				ID: "foo",
-			}, nil
-		}
-
-		return nil, nil
-	}
-
-	var refreshCount int32
-	mp.RefreshFn = func(*terraform.InstanceInfo, *terraform.InstanceState) (*terraform.InstanceState, error) {
-		atomic.AddInt32(&refreshCount, 1)
-		return &terraform.InstanceState{ID: "foo"}, nil
-	}
-
-	checkDestroy := false
-	checkStep := false
-
-	checkDestroyFn := func(*terraform.State) error {
-		checkDestroy = true
-		return nil
-	}
-
-	checkStepFn := func(s *terraform.State) error {
-		checkStep = true
-
-		rs, ok := s.RootModule().Resources["test_instance.foo"]
-		if !ok {
-			t.Error("test_instance.foo is not present")
-			return nil
-		}
-		is := rs.Primary
-		if is.ID != "foo" {
-			t.Errorf("bad check ID: %s", is.ID)
-		}
-
-		return nil
-	}
-
-	mt := new(mockT)
-	Test(mt, TestCase{
-		Providers: map[string]terraform.ResourceProvider{
-			"test": mp,
-		},
-		CheckDestroy: checkDestroyFn,
-		Steps: []TestStep{
-			TestStep{
-				Config: testConfigStr,
-				Check:  checkStepFn,
-			},
-		},
-	})
-
-	if mt.failed() {
-		t.Fatalf("test failed: %s", mt.failMessage())
-	}
-	if mt.ParallelCalled {
-		t.Fatal("Parallel() called")
-	}
-	if !checkStep {
-		t.Fatal("didn't call check for step")
-	}
-	if !checkDestroy {
-		t.Fatal("didn't call check for destroy")
-	}
-	if !mp.TestResetCalled {
-		t.Fatal("didn't call TestReset")
-	}
-}
-
-func TestTest_plan_only(t *testing.T) {
-	t.Skip("test requires new provider implementation")
-
-	mp := testProvider()
-	mp.ApplyReturn = &terraform.InstanceState{
-		ID: "foo",
-	}
-
-	checkDestroy := false
-
-	checkDestroyFn := func(*terraform.State) error {
-		checkDestroy = true
-		return nil
-	}
-
-	mt := new(mockT)
-	Test(mt, TestCase{
-		Providers: map[string]terraform.ResourceProvider{
-			"test": mp,
-		},
-		CheckDestroy: checkDestroyFn,
-		Steps: []TestStep{
-			TestStep{
-				Config:             testConfigStr,
-				PlanOnly:           true,
-				ExpectNonEmptyPlan: false,
-			},
-		},
-	})
-
-	if !mt.failed() {
-		t.Fatal("test should've failed")
-	}
-
-	expected := `Step 0 error: After applying this step, the plan was not empty:
-
-DIFF:
-
-CREATE: test_instance.foo
-  foo: "" => "bar"
-
-STATE:
-
-<no state>`
-
-	if mt.failMessage() != expected {
-		t.Fatalf("Expected message: %s\n\ngot:\n\n%s", expected, mt.failMessage())
-	}
-
-	if !checkDestroy {
-		t.Fatal("didn't call check for destroy")
-	}
-}
-
-func TestTest_idRefresh(t *testing.T) {
-	t.Skip("test requires new provider implementation")
-
-	// Refresh count should be 3:
-	//   1.) initial Ref/Plan/Apply
-	//   2.) post Ref/Plan/Apply for plan-check
-	//   3.) id refresh check
-	var expectedRefresh int32 = 3
-
-	mp := testProvider()
-	mp.DiffReturn = nil
-
-	mp.ApplyFn = func(
-		info *terraform.InstanceInfo,
-		state *terraform.InstanceState,
-		diff *terraform.InstanceDiff) (*terraform.InstanceState, error) {
-		if !diff.Destroy {
-			return &terraform.InstanceState{
-				ID: "foo",
-			}, nil
-		}
-
-		return nil, nil
-	}
-
-	var refreshCount int32
-	mp.RefreshFn = func(*terraform.InstanceInfo, *terraform.InstanceState) (*terraform.InstanceState, error) {
-		atomic.AddInt32(&refreshCount, 1)
-		return &terraform.InstanceState{ID: "foo"}, nil
-	}
-
-	mt := new(mockT)
-	Test(mt, TestCase{
-		IDRefreshName: "test_instance.foo",
-		Providers: map[string]terraform.ResourceProvider{
-			"test": mp,
-		},
-		Steps: []TestStep{
-			TestStep{
-				Config: testConfigStr,
-			},
-		},
-	})
-
-	if mt.failed() {
-		t.Fatalf("test failed: %s", mt.failMessage())
-	}
-
-	// See declaration of expectedRefresh for why that number
-	if refreshCount != expectedRefresh {
-		t.Fatalf("bad refresh count: %d", refreshCount)
-	}
-}
-
-func TestTest_idRefreshCustomName(t *testing.T) {
-	t.Skip("test requires new provider implementation")
-
-	// Refresh count should be 3:
-	//   1.) initial Ref/Plan/Apply
-	//   2.) post Ref/Plan/Apply for plan-check
-	//   3.) id refresh check
-	var expectedRefresh int32 = 3
-
-	mp := testProvider()
-	mp.DiffReturn = nil
-
-	mp.ApplyFn = func(
-		info *terraform.InstanceInfo,
-		state *terraform.InstanceState,
-		diff *terraform.InstanceDiff) (*terraform.InstanceState, error) {
-		if !diff.Destroy {
-			return &terraform.InstanceState{
-				ID: "foo",
-			}, nil
-		}
-
-		return nil, nil
-	}
-
-	var refreshCount int32
-	mp.RefreshFn = func(*terraform.InstanceInfo, *terraform.InstanceState) (*terraform.InstanceState, error) {
-		atomic.AddInt32(&refreshCount, 1)
-		return &terraform.InstanceState{ID: "foo"}, nil
-	}
-
-	mt := new(mockT)
-	Test(mt, TestCase{
-		IDRefreshName: "test_instance.foo",
-		Providers: map[string]terraform.ResourceProvider{
-			"test": mp,
-		},
-		Steps: []TestStep{
-			TestStep{
-				Config: testConfigStr,
-			},
-		},
-	})
-
-	if mt.failed() {
-		t.Fatalf("test failed: %s", mt.failMessage())
-	}
-
-	// See declaration of expectedRefresh for why that number
-	if refreshCount != expectedRefresh {
-		t.Fatalf("bad refresh count: %d", refreshCount)
-	}
-}
-
-func TestTest_idRefreshFail(t *testing.T) {
-	t.Skip("test requires new provider implementation")
-
-	// Refresh count should be 3:
-	//   1.) initial Ref/Plan/Apply
-	//   2.) post Ref/Plan/Apply for plan-check
-	//   3.) id refresh check
-	var expectedRefresh int32 = 3
-
-	mp := testProvider()
-	mp.DiffReturn = nil
-
-	mp.ApplyFn = func(
-		info *terraform.InstanceInfo,
-		state *terraform.InstanceState,
-		diff *terraform.InstanceDiff) (*terraform.InstanceState, error) {
-		if !diff.Destroy {
-			return &terraform.InstanceState{
-				ID: "foo",
-			}, nil
-		}
-
-		return nil, nil
-	}
-
-	var refreshCount int32
-	mp.RefreshFn = func(*terraform.InstanceInfo, *terraform.InstanceState) (*terraform.InstanceState, error) {
-		atomic.AddInt32(&refreshCount, 1)
-		if atomic.LoadInt32(&refreshCount) == expectedRefresh-1 {
-			return &terraform.InstanceState{
-				ID:         "foo",
-				Attributes: map[string]string{"foo": "bar"},
-			}, nil
-		} else if atomic.LoadInt32(&refreshCount) < expectedRefresh {
-			return &terraform.InstanceState{ID: "foo"}, nil
-		} else {
-			return nil, nil
-		}
-	}
-
-	mt := new(mockT)
-	Test(mt, TestCase{
-		IDRefreshName: "test_instance.foo",
-		Providers: map[string]terraform.ResourceProvider{
-			"test": mp,
-		},
-		Steps: []TestStep{
-			TestStep{
-				Config: testConfigStr,
-			},
-		},
-	})
-
-	if !mt.failed() {
-		t.Fatal("test didn't fail")
-	}
-	t.Logf("failure reason: %s", mt.failMessage())
-
-	// See declaration of expectedRefresh for why that number
-	if refreshCount != expectedRefresh {
-		t.Fatalf("bad refresh count: %d", refreshCount)
-	}
-}
-
-func TestTest_empty(t *testing.T) {
-	t.Skip("test requires new provider implementation")
-
-	destroyCalled := false
-	checkDestroyFn := func(*terraform.State) error {
-		destroyCalled = true
-		return nil
-	}
-
-	mt := new(mockT)
-	Test(mt, TestCase{
-		CheckDestroy: checkDestroyFn,
-	})
-
-	if mt.failed() {
-		t.Fatal("test failed")
-	}
-	if destroyCalled {
-		t.Fatal("should not call check destroy if there is no steps")
-	}
-}
-
-func TestTest_noEnv(t *testing.T) {
-	t.Skip("test requires new provider implementation")
-
-	// Unset the variable
-	if err := os.Setenv(TestEnvVar, ""); err != nil {
-		t.Fatalf("err: %s", err)
-	}
-	defer os.Setenv(TestEnvVar, "1")
-
-	mt := new(mockT)
-	Test(mt, TestCase{})
-
-	if !mt.SkipCalled {
-		t.Fatal("skip not called")
-	}
-}
-
-func TestTest_preCheck(t *testing.T) {
-	t.Skip("test requires new provider implementation")
-
-	called := false
-
-	mt := new(mockT)
-	Test(mt, TestCase{
-		PreCheck: func() { called = true },
-	})
-
-	if !called {
-		t.Fatal("precheck should be called")
-	}
-}
-
-func TestTest_skipFunc(t *testing.T) {
-	t.Skip("test requires new provider implementation")
-
-	preCheckCalled := false
-	skipped := false
-
-	mp := testProvider()
-	mp.ApplyReturn = &terraform.InstanceState{
-		ID: "foo",
-	}
-
-	checkStepFn := func(*terraform.State) error {
-		return fmt.Errorf("error")
-	}
-
-	mt := new(mockT)
-	Test(mt, TestCase{
-		Providers: map[string]terraform.ResourceProvider{
-			"test": mp,
-		},
-		PreCheck: func() { preCheckCalled = true },
-		Steps: []TestStep{
-			{
-				Config:   testConfigStr,
-				Check:    checkStepFn,
-				SkipFunc: func() (bool, error) { skipped = true; return true, nil },
-			},
-		},
-	})
-
-	if mt.failed() {
-		t.Fatal("Expected check to be skipped")
-	}
-
-	if !preCheckCalled {
-		t.Fatal("precheck should be called")
-	}
-	if !skipped {
-		t.Fatal("SkipFunc should be called")
-	}
-}
-
-func TestTest_stepError(t *testing.T) {
-	t.Skip("test requires new provider implementation")
-
-	mp := testProvider()
-	mp.ApplyReturn = &terraform.InstanceState{
-		ID: "foo",
-	}
-
-	checkDestroy := false
-
-	checkDestroyFn := func(*terraform.State) error {
-		checkDestroy = true
-		return nil
-	}
-
-	checkStepFn := func(*terraform.State) error {
-		return fmt.Errorf("error")
-	}
-
-	mt := new(mockT)
-	Test(mt, TestCase{
-		Providers: map[string]terraform.ResourceProvider{
-			"test": mp,
-		},
-		CheckDestroy: checkDestroyFn,
-		Steps: []TestStep{
-			TestStep{
-				Config: testConfigStr,
-				Check:  checkStepFn,
-			},
-		},
-	})
-
-	if !mt.failed() {
-		t.Fatal("test should've failed")
-	}
-	expected := "Step 0 error: Check failed: error"
-	if mt.failMessage() != expected {
-		t.Fatalf("Expected message: %s\n\ngot:\n\n%s", expected, mt.failMessage())
-	}
-
-	if !checkDestroy {
-		t.Fatal("didn't call check for destroy")
-	}
-}
-
 func TestTest_factoryError(t *testing.T) {
 	resourceFactoryError := fmt.Errorf("resource factory error")
 
-	factory := func() (terraform.ResourceProvider, error) {
+	factory := func() (*schema.Provider, error) {
 		return nil, resourceFactoryError
 	}
-
 	mt := new(mockT)
-	Test(mt, TestCase{
-		ProviderFactories: map[string]terraform.ResourceProviderFactory{
-			"test": factory,
-		},
-		Steps: []TestStep{
-			TestStep{
-				ExpectError: regexp.MustCompile("resource factory error"),
+	recovered := false
+
+	func() {
+		defer func() {
+			r := recover()
+			// this string is hardcoded in github.com/mitchellh/go-testing-interface
+			if s, ok := r.(string); !ok || !strings.HasPrefix(s, "testing.T failed, see logs for output") {
+				panic(r)
+			}
+			recovered = true
+		}()
+		Test(mt, TestCase{
+			ProviderFactories: map[string]func() (*schema.Provider, error){
+				"test": factory,
 			},
-		},
-	})
-
-	if !mt.failed() {
-		t.Fatal("test should've failed")
-	}
-}
-
-func TestTest_resetError(t *testing.T) {
-	t.Skip("test requires new provider implementation")
-
-	mp := &resetProvider{
-		MockResourceProvider: testProvider(),
-		TestResetError:       fmt.Errorf("provider reset error"),
-	}
-
-	mt := new(mockT)
-	Test(mt, TestCase{
-		Providers: map[string]terraform.ResourceProvider{
-			"test": mp,
-		},
-		Steps: []TestStep{
-			TestStep{
-				ExpectError: regexp.MustCompile("provider reset error"),
-			},
-		},
-	})
-
-	if !mt.failed() {
-		t.Fatal("test should've failed")
-	}
-}
-
-func TestTest_expectError(t *testing.T) {
-	t.Skip("test requires new provider implementation")
-
-	cases := []struct {
-		name     string
-		planErr  bool
-		applyErr bool
-		badErr   bool
-	}{
-		{
-			name:     "successful apply",
-			planErr:  false,
-			applyErr: false,
-		},
-		{
-			name:     "bad plan",
-			planErr:  true,
-			applyErr: false,
-		},
-		{
-			name:     "bad apply",
-			planErr:  false,
-			applyErr: true,
-		},
-		{
-			name:     "bad plan, bad err",
-			planErr:  true,
-			applyErr: false,
-			badErr:   true,
-		},
-		{
-			name:     "bad apply, bad err",
-			planErr:  false,
-			applyErr: true,
-			badErr:   true,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			mp := testProvider()
-			expectedText := "test provider error"
-			var errText string
-			if tc.badErr {
-				errText = "wrong provider error"
-			} else {
-				errText = expectedText
-			}
-			noErrText := "no error received, but expected a match to"
-			if tc.planErr {
-				mp.DiffReturnError = errors.New(errText)
-			}
-			if tc.applyErr {
-				mp.ApplyReturnError = errors.New(errText)
-			}
-			mt := new(mockT)
-			Test(mt, TestCase{
-				Providers: map[string]terraform.ResourceProvider{
-					"test": mp,
-				},
-				Steps: []TestStep{
-					TestStep{
-						Config:             testConfigStr,
-						ExpectError:        regexp.MustCompile(expectedText),
-						Check:              func(*terraform.State) error { return nil },
-						ExpectNonEmptyPlan: true,
-					},
-				},
-			},
-			)
-			if mt.FatalCalled {
-				t.Fatalf("fatal: %+v", mt.FatalArgs)
-			}
-			switch {
-			case len(mt.ErrorArgs) < 1 && !tc.planErr && !tc.applyErr:
-				t.Fatalf("expected error, got none")
-			case !tc.planErr && !tc.applyErr:
-				for _, e := range mt.ErrorArgs {
-					if regexp.MustCompile(noErrText).MatchString(fmt.Sprintf("%v", e)) {
-						return
-					}
-				}
-				t.Fatalf("expected error to match %s, got %+v", noErrText, mt.ErrorArgs)
-			case tc.badErr:
-				for _, e := range mt.ErrorArgs {
-					if regexp.MustCompile(expectedText).MatchString(fmt.Sprintf("%v", e)) {
-						return
-					}
-				}
-				t.Fatalf("expected error to match %s, got %+v", expectedText, mt.ErrorArgs)
-			}
+			IsUnitTest: true,
 		})
+	}()
+
+	if !recovered {
+		t.Fatalf("test should've failed fatally")
 	}
 }
 
@@ -730,73 +143,17 @@ func TestComposeTestCheckFunc(t *testing.T) {
 
 // mockT implements TestT for testing
 type mockT struct {
-	ErrorCalled    bool
-	ErrorArgs      []interface{}
-	FatalCalled    bool
-	FatalArgs      []interface{}
+	testinginterface.RuntimeT
+
 	ParallelCalled bool
-	SkipCalled     bool
-	SkipArgs       []interface{}
-
-	f bool
-}
-
-func (t *mockT) Error(args ...interface{}) {
-	t.ErrorCalled = true
-	t.ErrorArgs = args
-	t.f = true
-}
-
-func (t *mockT) Fatal(args ...interface{}) {
-	t.FatalCalled = true
-	t.FatalArgs = args
-	t.f = true
 }
 
 func (t *mockT) Parallel() {
 	t.ParallelCalled = true
 }
 
-func (t *mockT) Skip(args ...interface{}) {
-	t.SkipCalled = true
-	t.SkipArgs = args
-	t.f = true
-}
-
 func (t *mockT) Name() string {
 	return "MockedName"
-}
-
-func (t *mockT) failed() bool {
-	return t.f
-}
-
-func (t *mockT) failMessage() string {
-	if t.FatalCalled {
-		return t.FatalArgs[0].(string)
-	} else if t.ErrorCalled {
-		return t.ErrorArgs[0].(string)
-	} else if t.SkipCalled {
-		return t.SkipArgs[0].(string)
-	}
-
-	return "unknown"
-}
-
-func testProvider() *terraform.MockResourceProvider {
-	mp := new(terraform.MockResourceProvider)
-	mp.DiffReturn = &terraform.InstanceDiff{
-		Attributes: map[string]*terraform.ResourceAttrDiff{
-			"foo": &terraform.ResourceAttrDiff{
-				New: "bar",
-			},
-		},
-	}
-	mp.ResourcesReturn = []terraform.ResourceType{
-		terraform.ResourceType{Name: "test_instance"},
-	}
-
-	return mp
 }
 
 func TestTest_Main(t *testing.T) {
@@ -816,7 +173,7 @@ func TestTest_Main(t *testing.T) {
 		{
 			Name: "basic passing",
 			Sweepers: map[string]*Sweeper{
-				"aws_dummy": &Sweeper{
+				"aws_dummy": {
 					Name: "aws_dummy",
 					F:    mockSweeperFunc,
 				},
@@ -851,7 +208,7 @@ func TestFilterSweepers(t *testing.T) {
 		{
 			Name: "normal",
 			Sweepers: map[string]*Sweeper{
-				"aws_dummy": &Sweeper{
+				"aws_dummy": {
 					Name: "aws_dummy",
 					F:    mockSweeperFunc,
 				},
@@ -861,16 +218,16 @@ func TestFilterSweepers(t *testing.T) {
 		{
 			Name: "with dep",
 			Sweepers: map[string]*Sweeper{
-				"aws_dummy": &Sweeper{
+				"aws_dummy": {
 					Name: "aws_dummy",
 					F:    mockSweeperFunc,
 				},
-				"aws_top": &Sweeper{
+				"aws_top": {
 					Name:         "aws_top",
 					Dependencies: []string{"aws_sub"},
 					F:            mockSweeperFunc,
 				},
-				"aws_sub": &Sweeper{
+				"aws_sub": {
 					Name: "aws_sub",
 					F:    mockSweeperFunc,
 				},
@@ -880,16 +237,16 @@ func TestFilterSweepers(t *testing.T) {
 		{
 			Name: "with filter",
 			Sweepers: map[string]*Sweeper{
-				"aws_dummy": &Sweeper{
+				"aws_dummy": {
 					Name: "aws_dummy",
 					F:    mockSweeperFunc,
 				},
-				"aws_top": &Sweeper{
+				"aws_top": {
 					Name:         "aws_top",
 					Dependencies: []string{"aws_sub"},
 					F:            mockSweeperFunc,
 				},
-				"aws_sub": &Sweeper{
+				"aws_sub": {
 					Name: "aws_sub",
 					F:    mockSweeperFunc,
 				},
@@ -900,16 +257,16 @@ func TestFilterSweepers(t *testing.T) {
 		{
 			Name: "with two filters",
 			Sweepers: map[string]*Sweeper{
-				"aws_dummy": &Sweeper{
+				"aws_dummy": {
 					Name: "aws_dummy",
 					F:    mockSweeperFunc,
 				},
-				"aws_top": &Sweeper{
+				"aws_top": {
 					Name:         "aws_top",
 					Dependencies: []string{"aws_sub"},
 					F:            mockSweeperFunc,
 				},
-				"aws_sub": &Sweeper{
+				"aws_sub": {
 					Name: "aws_sub",
 					F:    mockSweeperFunc,
 				},
@@ -920,16 +277,16 @@ func TestFilterSweepers(t *testing.T) {
 		{
 			Name: "with dep and filter",
 			Sweepers: map[string]*Sweeper{
-				"aws_dummy": &Sweeper{
+				"aws_dummy": {
 					Name: "aws_dummy",
 					F:    mockSweeperFunc,
 				},
-				"aws_top": &Sweeper{
+				"aws_top": {
 					Name:         "aws_top",
 					Dependencies: []string{"aws_sub"},
 					F:            mockSweeperFunc,
 				},
-				"aws_sub": &Sweeper{
+				"aws_sub": {
 					Name: "aws_sub",
 					F:    mockSweeperFunc,
 				},
@@ -940,16 +297,16 @@ func TestFilterSweepers(t *testing.T) {
 		{
 			Name: "with non-matching filter",
 			Sweepers: map[string]*Sweeper{
-				"aws_dummy": &Sweeper{
+				"aws_dummy": {
 					Name: "aws_dummy",
 					F:    mockSweeperFunc,
 				},
-				"aws_top": &Sweeper{
+				"aws_top": {
 					Name:         "aws_top",
 					Dependencies: []string{"aws_sub"},
 					F:            mockSweeperFunc,
 				},
-				"aws_sub": &Sweeper{
+				"aws_sub": {
 					Name: "aws_sub",
 					F:    mockSweeperFunc,
 				},
@@ -959,21 +316,21 @@ func TestFilterSweepers(t *testing.T) {
 		{
 			Name: "with nested depenencies and top level filter",
 			Sweepers: map[string]*Sweeper{
-				"not_matching": &Sweeper{
+				"not_matching": {
 					Name: "not_matching",
 					F:    mockSweeperFunc,
 				},
-				"matching_level1": &Sweeper{
+				"matching_level1": {
 					Name:         "matching_level1",
 					Dependencies: []string{"matching_level2"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level2": &Sweeper{
+				"matching_level2": {
 					Name:         "matching_level2",
 					Dependencies: []string{"matching_level3"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level3": &Sweeper{
+				"matching_level3": {
 					Name: "matching_level3",
 					F:    mockSweeperFunc,
 				},
@@ -984,21 +341,21 @@ func TestFilterSweepers(t *testing.T) {
 		{
 			Name: "with nested depenencies and middle level filter",
 			Sweepers: map[string]*Sweeper{
-				"not_matching": &Sweeper{
+				"not_matching": {
 					Name: "not_matching",
 					F:    mockSweeperFunc,
 				},
-				"matching_level1": &Sweeper{
+				"matching_level1": {
 					Name:         "matching_level1",
 					Dependencies: []string{"matching_level2"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level2": &Sweeper{
+				"matching_level2": {
 					Name:         "matching_level2",
 					Dependencies: []string{"matching_level3"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level3": &Sweeper{
+				"matching_level3": {
 					Name: "matching_level3",
 					F:    mockSweeperFunc,
 				},
@@ -1009,21 +366,21 @@ func TestFilterSweepers(t *testing.T) {
 		{
 			Name: "with nested depenencies and bottom level filter",
 			Sweepers: map[string]*Sweeper{
-				"not_matching": &Sweeper{
+				"not_matching": {
 					Name: "not_matching",
 					F:    mockSweeperFunc,
 				},
-				"matching_level1": &Sweeper{
+				"matching_level1": {
 					Name:         "matching_level1",
 					Dependencies: []string{"matching_level2"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level2": &Sweeper{
+				"matching_level2": {
 					Name:         "matching_level2",
 					Dependencies: []string{"matching_level3"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level3": &Sweeper{
+				"matching_level3": {
 					Name: "matching_level3",
 					F:    mockSweeperFunc,
 				},
@@ -1041,7 +398,7 @@ func TestFilterSweepers(t *testing.T) {
 			actualSweepers := filterSweepers(tc.Filter, tc.Sweepers)
 
 			var keys []string
-			for k, _ := range actualSweepers {
+			for k := range actualSweepers {
 				keys = append(keys, k)
 			}
 
@@ -1064,11 +421,11 @@ func TestFilterSweeperWithDependencies(t *testing.T) {
 		{
 			Name: "no dependencies",
 			Sweepers: map[string]*Sweeper{
-				"matching_level1": &Sweeper{
+				"matching_level1": {
 					Name: "matching_level1",
 					F:    mockSweeperFunc,
 				},
-				"non_matching": &Sweeper{
+				"non_matching": {
 					Name: "non_matching",
 					F:    mockSweeperFunc,
 				},
@@ -1079,12 +436,12 @@ func TestFilterSweeperWithDependencies(t *testing.T) {
 		{
 			Name: "one level one dependency",
 			Sweepers: map[string]*Sweeper{
-				"matching_level1": &Sweeper{
+				"matching_level1": {
 					Name:         "matching_level1",
 					Dependencies: []string{"matching_level2"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level2": &Sweeper{
+				"matching_level2": {
 					Name: "matching_level2",
 					F:    mockSweeperFunc,
 				},
@@ -1095,16 +452,16 @@ func TestFilterSweeperWithDependencies(t *testing.T) {
 		{
 			Name: "one level multiple dependencies",
 			Sweepers: map[string]*Sweeper{
-				"matching_level1": &Sweeper{
+				"matching_level1": {
 					Name:         "matching_level1",
 					Dependencies: []string{"matching_level2a", "matching_level2b"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level2a": &Sweeper{
+				"matching_level2a": {
 					Name: "matching_level2a",
 					F:    mockSweeperFunc,
 				},
-				"matching_level2b": &Sweeper{
+				"matching_level2b": {
 					Name: "matching_level2b",
 					F:    mockSweeperFunc,
 				},
@@ -1115,17 +472,17 @@ func TestFilterSweeperWithDependencies(t *testing.T) {
 		{
 			Name: "multiple level one dependency",
 			Sweepers: map[string]*Sweeper{
-				"matching_level1": &Sweeper{
+				"matching_level1": {
 					Name:         "matching_level1",
 					Dependencies: []string{"matching_level2"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level2": &Sweeper{
+				"matching_level2": {
 					Name:         "matching_level2",
 					Dependencies: []string{"matching_level3"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level3": &Sweeper{
+				"matching_level3": {
 					Name: "matching_level3",
 					F:    mockSweeperFunc,
 				},
@@ -1136,34 +493,34 @@ func TestFilterSweeperWithDependencies(t *testing.T) {
 		{
 			Name: "multiple level multiple dependencies",
 			Sweepers: map[string]*Sweeper{
-				"matching_level1": &Sweeper{
+				"matching_level1": {
 					Name:         "matching_level1",
 					Dependencies: []string{"matching_level2a", "matching_level2b"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level2a": &Sweeper{
+				"matching_level2a": {
 					Name:         "matching_level2a",
 					Dependencies: []string{"matching_level3a", "matching_level3b"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level2b": &Sweeper{
+				"matching_level2b": {
 					Name:         "matching_level2b",
 					Dependencies: []string{"matching_level3c", "matching_level3d"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level3a": &Sweeper{
+				"matching_level3a": {
 					Name: "matching_level3a",
 					F:    mockSweeperFunc,
 				},
-				"matching_level3b": &Sweeper{
+				"matching_level3b": {
 					Name: "matching_level3b",
 					F:    mockSweeperFunc,
 				},
-				"matching_level3c": &Sweeper{
+				"matching_level3c": {
 					Name: "matching_level3c",
 					F:    mockSweeperFunc,
 				},
-				"matching_level3d": &Sweeper{
+				"matching_level3d": {
 					Name: "matching_level3d",
 					F:    mockSweeperFunc,
 				},
@@ -1174,17 +531,17 @@ func TestFilterSweeperWithDependencies(t *testing.T) {
 		{
 			Name: "no parents one level",
 			Sweepers: map[string]*Sweeper{
-				"matching_level1": &Sweeper{
+				"matching_level1": {
 					Name:         "matching_level1",
 					Dependencies: []string{"matching_level2"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level2": &Sweeper{
+				"matching_level2": {
 					Name:         "matching_level2",
 					Dependencies: []string{"matching_level3"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level3": &Sweeper{
+				"matching_level3": {
 					Name: "matching_level3",
 					F:    mockSweeperFunc,
 				},
@@ -1195,17 +552,17 @@ func TestFilterSweeperWithDependencies(t *testing.T) {
 		{
 			Name: "no parents multiple level",
 			Sweepers: map[string]*Sweeper{
-				"matching_level1": &Sweeper{
+				"matching_level1": {
 					Name:         "matching_level1",
 					Dependencies: []string{"matching_level2"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level2": &Sweeper{
+				"matching_level2": {
 					Name:         "matching_level2",
 					Dependencies: []string{"matching_level3"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level3": &Sweeper{
+				"matching_level3": {
 					Name: "matching_level3",
 					F:    mockSweeperFunc,
 				},
@@ -1216,16 +573,16 @@ func TestFilterSweeperWithDependencies(t *testing.T) {
 		{
 			Name: "one level missing dependency",
 			Sweepers: map[string]*Sweeper{
-				"matching_level1": &Sweeper{
+				"matching_level1": {
 					Name:         "matching_level1",
 					Dependencies: []string{"matching_level2a", "matching_level2c"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level2a": &Sweeper{
+				"matching_level2a": {
 					Name: "matching_level2a",
 					F:    mockSweeperFunc,
 				},
-				"matching_level2b": &Sweeper{
+				"matching_level2b": {
 					Name: "matching_level2b",
 					F:    mockSweeperFunc,
 				},
@@ -1236,34 +593,34 @@ func TestFilterSweeperWithDependencies(t *testing.T) {
 		{
 			Name: "multiple level missing dependencies",
 			Sweepers: map[string]*Sweeper{
-				"matching_level1": &Sweeper{
+				"matching_level1": {
 					Name:         "matching_level1",
 					Dependencies: []string{"matching_level2a", "matching_level2b", "matching_level2c"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level2a": &Sweeper{
+				"matching_level2a": {
 					Name:         "matching_level2a",
 					Dependencies: []string{"matching_level3a", "matching_level3e"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level2b": &Sweeper{
+				"matching_level2b": {
 					Name:         "matching_level2b",
 					Dependencies: []string{"matching_level3c", "matching_level3f"},
 					F:            mockSweeperFunc,
 				},
-				"matching_level3a": &Sweeper{
+				"matching_level3a": {
 					Name: "matching_level3a",
 					F:    mockSweeperFunc,
 				},
-				"matching_level3b": &Sweeper{
+				"matching_level3b": {
 					Name: "matching_level3b",
 					F:    mockSweeperFunc,
 				},
-				"matching_level3c": &Sweeper{
+				"matching_level3c": {
 					Name: "matching_level3c",
 					F:    mockSweeperFunc,
 				},
-				"matching_level3d": &Sweeper{
+				"matching_level3d": {
 					Name: "matching_level3d",
 					F:    mockSweeperFunc,
 				},
@@ -1281,7 +638,7 @@ func TestFilterSweeperWithDependencies(t *testing.T) {
 			actualSweepers := filterSweeperWithDependencies(tc.StartingSweeper, tc.Sweepers)
 
 			var keys []string
-			for k, _ := range actualSweepers {
+			for k := range actualSweepers {
 				keys = append(keys, k)
 			}
 
@@ -1306,7 +663,7 @@ func TestRunSweepers(t *testing.T) {
 		{
 			Name: "single",
 			Sweepers: map[string]*Sweeper{
-				"aws_dummy": &Sweeper{
+				"aws_dummy": {
 					Name: "aws_dummy",
 					F:    mockSweeperFunc,
 				},
@@ -1316,11 +673,11 @@ func TestRunSweepers(t *testing.T) {
 		{
 			Name: "multiple",
 			Sweepers: map[string]*Sweeper{
-				"aws_one": &Sweeper{
+				"aws_one": {
 					Name: "aws_one",
 					F:    mockSweeperFunc,
 				},
-				"aws_two": &Sweeper{
+				"aws_two": {
 					Name: "aws_two",
 					F:    mockSweeperFunc,
 				},
@@ -1330,16 +687,16 @@ func TestRunSweepers(t *testing.T) {
 		{
 			Name: "multiple with dep",
 			Sweepers: map[string]*Sweeper{
-				"aws_dummy": &Sweeper{
+				"aws_dummy": {
 					Name: "aws_dummy",
 					F:    mockSweeperFunc,
 				},
-				"aws_top": &Sweeper{
+				"aws_top": {
 					Name:         "aws_top",
 					Dependencies: []string{"aws_sub"},
 					F:            mockSweeperFunc,
 				},
-				"aws_sub": &Sweeper{
+				"aws_sub": {
 					Name: "aws_sub",
 					F:    mockSweeperFunc,
 				},
@@ -1349,12 +706,12 @@ func TestRunSweepers(t *testing.T) {
 		{
 			Name: "failing dep",
 			Sweepers: map[string]*Sweeper{
-				"aws_top": &Sweeper{
+				"aws_top": {
 					Name:         "aws_top",
 					Dependencies: []string{"aws_sub"},
 					F:            mockSweeperFunc,
 				},
-				"aws_sub": &Sweeper{
+				"aws_sub": {
 					Name: "aws_sub",
 					F:    mockFailingSweeperFunc,
 				},
@@ -1365,12 +722,12 @@ func TestRunSweepers(t *testing.T) {
 		{
 			Name: "failing dep allow failures",
 			Sweepers: map[string]*Sweeper{
-				"aws_top": &Sweeper{
+				"aws_top": {
 					Name:         "aws_top",
 					Dependencies: []string{"aws_sub"},
 					F:            mockSweeperFunc,
 				},
-				"aws_sub": &Sweeper{
+				"aws_sub": {
 					Name: "aws_sub",
 					F:    mockFailingSweeperFunc,
 				},
@@ -1382,12 +739,12 @@ func TestRunSweepers(t *testing.T) {
 		{
 			Name: "failing top",
 			Sweepers: map[string]*Sweeper{
-				"aws_top": &Sweeper{
+				"aws_top": {
 					Name:         "aws_top",
 					Dependencies: []string{"aws_sub"},
 					F:            mockFailingSweeperFunc,
 				},
-				"aws_sub": &Sweeper{
+				"aws_sub": {
 					Name: "aws_sub",
 					F:    mockSweeperFunc,
 				},
@@ -1398,12 +755,12 @@ func TestRunSweepers(t *testing.T) {
 		{
 			Name: "failing top allow failures",
 			Sweepers: map[string]*Sweeper{
-				"aws_top": &Sweeper{
+				"aws_top": {
 					Name:         "aws_top",
 					Dependencies: []string{"aws_sub"},
 					F:            mockFailingSweeperFunc,
 				},
-				"aws_sub": &Sweeper{
+				"aws_sub": {
 					Name: "aws_sub",
 					F:    mockSweeperFunc,
 				},
@@ -1415,12 +772,12 @@ func TestRunSweepers(t *testing.T) {
 		{
 			Name: "failing top and dep",
 			Sweepers: map[string]*Sweeper{
-				"aws_top": &Sweeper{
+				"aws_top": {
 					Name:         "aws_top",
 					Dependencies: []string{"aws_sub"},
 					F:            mockFailingSweeperFunc,
 				},
-				"aws_sub": &Sweeper{
+				"aws_sub": {
 					Name: "aws_sub",
 					F:    mockFailingSweeperFunc,
 				},
@@ -1431,12 +788,12 @@ func TestRunSweepers(t *testing.T) {
 		{
 			Name: "failing top and dep allow failues",
 			Sweepers: map[string]*Sweeper{
-				"aws_top": &Sweeper{
+				"aws_top": {
 					Name:         "aws_top",
 					Dependencies: []string{"aws_sub"},
 					F:            mockFailingSweeperFunc,
 				},
-				"aws_sub": &Sweeper{
+				"aws_sub": {
 					Name: "aws_sub",
 					F:    mockFailingSweeperFunc,
 				},
@@ -1465,7 +822,7 @@ func TestRunSweepers(t *testing.T) {
 
 			// get list of tests ran from sweeperRunList keys
 			var keys []string
-			for k, _ := range sweeperRunList["test"] {
+			for k := range sweeperRunList["test"] {
 				keys = append(keys, k)
 			}
 
@@ -1486,172 +843,12 @@ func mockSweeperFunc(s string) error {
 	return nil
 }
 
-func TestTest_Taint(t *testing.T) {
-	t.Skip("test requires new provider implementation")
-
-	mp := testProvider()
-	mp.DiffFn = func(
-		_ *terraform.InstanceInfo,
-		state *terraform.InstanceState,
-		_ *terraform.ResourceConfig,
-	) (*terraform.InstanceDiff, error) {
-		return &terraform.InstanceDiff{
-			DestroyTainted: state.Tainted,
-		}, nil
-	}
-
-	mp.ApplyFn = func(
-		info *terraform.InstanceInfo,
-		state *terraform.InstanceState,
-		diff *terraform.InstanceDiff,
-	) (*terraform.InstanceState, error) {
-		var id string
-		switch {
-		case diff.Destroy && !diff.DestroyTainted:
-			return nil, nil
-		case diff.DestroyTainted:
-			id = "tainted"
-		default:
-			id = "not_tainted"
-		}
-
-		return &terraform.InstanceState{
-			ID: id,
-		}, nil
-	}
-
-	mp.RefreshFn = func(
-		_ *terraform.InstanceInfo,
-		state *terraform.InstanceState,
-	) (*terraform.InstanceState, error) {
-		return state, nil
-	}
-
-	mt := new(mockT)
-	Test(mt, TestCase{
-		Providers: map[string]terraform.ResourceProvider{
-			"test": mp,
-		},
-		Steps: []TestStep{
-			TestStep{
-				Config: testConfigStr,
-				Check: func(s *terraform.State) error {
-					rs := s.RootModule().Resources["test_instance.foo"]
-					if rs.Primary.ID != "not_tainted" {
-						return fmt.Errorf("expected not_tainted, got %s", rs.Primary.ID)
-					}
-					return nil
-				},
-			},
-			TestStep{
-				Taint:  []string{"test_instance.foo"},
-				Config: testConfigStr,
-				Check: func(s *terraform.State) error {
-					rs := s.RootModule().Resources["test_instance.foo"]
-					if rs.Primary.ID != "tainted" {
-						return fmt.Errorf("expected tainted, got %s", rs.Primary.ID)
-					}
-					return nil
-				},
-			},
-			TestStep{
-				Taint:       []string{"test_instance.fooo"},
-				Config:      testConfigStr,
-				ExpectError: regexp.MustCompile("resource \"test_instance.fooo\" not found in state"),
-			},
-		},
-	})
-
-	if mt.failed() {
-		t.Fatalf("test failure: %s", mt.failMessage())
-	}
-}
-
-func TestTestProviderResolver(t *testing.T) {
-	stubProvider := func(name string) terraform.ResourceProvider {
-		return &schema.Provider{
-			Schema: map[string]*schema.Schema{
-				name: &schema.Schema{
-					Type:     schema.TypeString,
-					Required: true,
-				},
-			},
-		}
-	}
-
-	c := TestCase{
-		ProviderFactories: map[string]terraform.ResourceProviderFactory{
-			"foo": terraform.ResourceProviderFactoryFixed(stubProvider("foo")),
-			"bar": terraform.ResourceProviderFactoryFixed(stubProvider("bar")),
-		},
-		Providers: map[string]terraform.ResourceProvider{
-			"baz": stubProvider("baz"),
-			"bop": stubProvider("bop"),
-		},
-	}
-
-	resolver, err := testProviderResolver(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	reqd := discovery.PluginRequirements{
-		"foo": &discovery.PluginConstraints{},
-		"bar": &discovery.PluginConstraints{},
-		"baz": &discovery.PluginConstraints{},
-		"bop": &discovery.PluginConstraints{},
-	}
-
-	factories, errs := resolver.ResolveProviders(reqd)
-	if len(errs) != 0 {
-		for _, err := range errs {
-			t.Error(err)
-		}
-		t.Fatal("unexpected errors")
-	}
-
-	for name := range reqd {
-		t.Run(name, func(t *testing.T) {
-			pf, ok := factories[name]
-			if !ok {
-				t.Fatalf("no factory for %q", name)
-			}
-			p, err := pf()
-			if err != nil {
-				t.Fatal(err)
-			}
-			resp := p.GetSchema()
-			_, ok = resp.Provider.Block.Attributes[name]
-			if !ok {
-				var has string
-				for k := range resp.Provider.Block.Attributes {
-					has = k
-					break
-				}
-				if has != "" {
-					t.Errorf("provider %q does not have the expected schema attribute %q (but has %q)", name, name, has)
-				} else {
-					t.Errorf("provider %q does not have the expected schema attribute %q", name, name)
-				}
-			}
-		})
-	}
-}
-
-const testConfigStr = `
-resource "test_instance" "foo" {}
-`
-
-const testConfigStrProvider = `
-provider "test" {}
-`
-
 func TestCheckResourceAttr_empty(t *testing.T) {
 	s := terraform.NewState()
 	s.AddModuleState(&terraform.ModuleState{
 		Path: []string{"root"},
 		Resources: map[string]*terraform.ResourceState{
-			"test_resource": &terraform.ResourceState{
+			"test_resource": {
 				Primary: &terraform.InstanceState{
 					Attributes: map[string]string{
 						"empty_list.#": "0",
@@ -1682,7 +879,7 @@ func TestCheckNoResourceAttr_empty(t *testing.T) {
 	s.AddModuleState(&terraform.ModuleState{
 		Path: []string{"root"},
 		Resources: map[string]*terraform.ResourceState{
-			"test_resource": &terraform.ResourceState{
+			"test_resource": {
 				Primary: &terraform.InstanceState{
 					Attributes: map[string]string{
 						"empty_list.#": "0",
@@ -1710,11 +907,19 @@ func TestCheckNoResourceAttr_empty(t *testing.T) {
 
 func TestTestCheckResourceAttrPair(t *testing.T) {
 	tests := map[string]struct {
-		state   *terraform.State
-		wantErr string
+		nameFirst  string
+		keyFirst   string
+		nameSecond string
+		keySecond  string
+		state      *terraform.State
+		wantErr    string
 	}{
-		"exist match": {
-			&terraform.State{
+		"self": {
+			nameFirst:  "test.a",
+			keyFirst:   "a",
+			nameSecond: "test.a",
+			keySecond:  "a",
+			state: &terraform.State{
 				Modules: []*terraform.ModuleState{
 					{
 						Path: []string{"root"},
@@ -1737,10 +942,44 @@ func TestTestCheckResourceAttrPair(t *testing.T) {
 					},
 				},
 			},
-			``,
+			wantErr: `comparing self: resource test.a attribute a`,
+		},
+		"exist match": {
+			nameFirst:  "test.a",
+			keyFirst:   "a",
+			nameSecond: "test.b",
+			keySecond:  "b",
+			state: &terraform.State{
+				Modules: []*terraform.ModuleState{
+					{
+						Path: []string{"root"},
+						Resources: map[string]*terraform.ResourceState{
+							"test.a": {
+								Primary: &terraform.InstanceState{
+									Attributes: map[string]string{
+										"a": "boop",
+									},
+								},
+							},
+							"test.b": {
+								Primary: &terraform.InstanceState{
+									Attributes: map[string]string{
+										"b": "boop",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: ``,
 		},
 		"nonexist match": {
-			&terraform.State{
+			nameFirst:  "test.a",
+			keyFirst:   "a",
+			nameSecond: "test.b",
+			keySecond:  "b",
+			state: &terraform.State{
 				Modules: []*terraform.ModuleState{
 					{
 						Path: []string{"root"},
@@ -1759,10 +998,14 @@ func TestTestCheckResourceAttrPair(t *testing.T) {
 					},
 				},
 			},
-			``,
+			wantErr: ``,
 		},
 		"exist nonmatch": {
-			&terraform.State{
+			nameFirst:  "test.a",
+			keyFirst:   "a",
+			nameSecond: "test.b",
+			keySecond:  "b",
+			state: &terraform.State{
 				Modules: []*terraform.ModuleState{
 					{
 						Path: []string{"root"},
@@ -1785,10 +1028,14 @@ func TestTestCheckResourceAttrPair(t *testing.T) {
 					},
 				},
 			},
-			`test.a: Attribute 'a' expected "boop", got "beep"`,
+			wantErr: `test.a: Attribute 'a' expected "boop", got "beep"`,
 		},
 		"inconsistent exist a": {
-			&terraform.State{
+			nameFirst:  "test.a",
+			keyFirst:   "a",
+			nameSecond: "test.b",
+			keySecond:  "b",
+			state: &terraform.State{
 				Modules: []*terraform.ModuleState{
 					{
 						Path: []string{"root"},
@@ -1809,10 +1056,14 @@ func TestTestCheckResourceAttrPair(t *testing.T) {
 					},
 				},
 			},
-			`test.a: Attribute "a" is "beep", but "b" is not set in test.b`,
+			wantErr: `test.a: Attribute "a" is "beep", but "b" is not set in test.b`,
 		},
 		"inconsistent exist b": {
-			&terraform.State{
+			nameFirst:  "test.a",
+			keyFirst:   "a",
+			nameSecond: "test.b",
+			keySecond:  "b",
+			state: &terraform.State{
 				Modules: []*terraform.ModuleState{
 					{
 						Path: []string{"root"},
@@ -1833,40 +1084,14 @@ func TestTestCheckResourceAttrPair(t *testing.T) {
 					},
 				},
 			},
-			`test.a: Attribute "a" not set, but "b" is set in test.b as "boop"`,
+			wantErr: `test.a: Attribute "a" not set, but "b" is set in test.b as "boop"`,
 		},
-	}
-
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			fn := TestCheckResourceAttrPair("test.a", "a", "test.b", "b")
-			err := fn(test.state)
-
-			if test.wantErr != "" {
-				if err == nil {
-					t.Fatalf("succeeded; want error\nwant: %s", test.wantErr)
-				}
-				if got, want := err.Error(), test.wantErr; got != want {
-					t.Fatalf("wrong error\ngot:  %s\nwant: %s", got, want)
-				}
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("failed; want success\ngot: %s", err.Error())
-			}
-		})
-	}
-}
-
-func TestTestCheckResourceAttrPairCount(t *testing.T) {
-	tests := map[string]struct {
-		state   *terraform.State
-		attr    string
-		wantErr string
-	}{
 		"unset and 0 equal list": {
-			&terraform.State{
+			nameFirst:  "test.a",
+			keyFirst:   "a.#",
+			nameSecond: "test.b",
+			keySecond:  "a.#",
+			state: &terraform.State{
 				Modules: []*terraform.ModuleState{
 					{
 						Path: []string{"root"},
@@ -1887,11 +1112,14 @@ func TestTestCheckResourceAttrPairCount(t *testing.T) {
 					},
 				},
 			},
-			"a.#",
-			``,
+			wantErr: ``,
 		},
 		"unset and 0 equal map": {
-			&terraform.State{
+			nameFirst:  "test.a",
+			keyFirst:   "a.%",
+			nameSecond: "test.b",
+			keySecond:  "a.%",
+			state: &terraform.State{
 				Modules: []*terraform.ModuleState{
 					{
 						Path: []string{"root"},
@@ -1912,11 +1140,14 @@ func TestTestCheckResourceAttrPairCount(t *testing.T) {
 					},
 				},
 			},
-			"a.%",
-			``,
+			wantErr: ``,
 		},
 		"count equal": {
-			&terraform.State{
+			nameFirst:  "test.a",
+			keyFirst:   "a.%",
+			nameSecond: "test.b",
+			keySecond:  "a.%",
+			state: &terraform.State{
 				Modules: []*terraform.ModuleState{
 					{
 						Path: []string{"root"},
@@ -1938,14 +1169,13 @@ func TestTestCheckResourceAttrPairCount(t *testing.T) {
 					},
 				},
 			},
-			"a.%",
-			``,
+			wantErr: ``,
 		},
 	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			fn := TestCheckResourceAttrPair("test.a", test.attr, "test.b", test.attr)
+			fn := TestCheckResourceAttrPair(test.nameFirst, test.keyFirst, test.nameSecond, test.keySecond)
 			err := fn(test.state)
 
 			if test.wantErr != "" {

@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"sync/atomic"
@@ -325,5 +326,48 @@ func TestWaitForState_failure(t *testing.T) {
 	}
 	if obj != nil {
 		t.Fatalf("should not return obj")
+	}
+}
+
+func TestWaitForStateContext_cancel(t *testing.T) {
+	// make this refresh func block until we cancel it
+	ctx, cancel := context.WithCancel(context.Background())
+	refresh := func() (interface{}, string, error) {
+		<-ctx.Done()
+		return nil, "pending", nil
+	}
+	conf := &StateChangeConf{
+		Pending: []string{"pending", "incomplete"},
+		Target:  []string{"running"},
+		Refresh: refresh,
+		Timeout: 10 * time.Second,
+	}
+
+	var err error
+
+	waitDone := make(chan struct{})
+	go func() {
+		defer close(waitDone)
+		_, err = conf.WaitForStateContext(ctx)
+	}()
+
+	// make sure WaitForState is blocked
+	select {
+	case <-waitDone:
+		t.Fatal("WaitForState returned too early")
+	case <-time.After(10 * time.Millisecond):
+	}
+
+	// unlock the refresh function
+	cancel()
+	// make sure WaitForState returns
+	select {
+	case <-waitDone:
+	case <-time.After(time.Second):
+		t.Fatal("WaitForState didn't return after refresh finished")
+	}
+
+	if err != context.Canceled {
+		t.Fatalf("Expected canceled context error, got: %s", err)
 	}
 }

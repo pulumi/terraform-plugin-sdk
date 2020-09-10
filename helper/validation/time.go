@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
 // IsDayOfTheWeek id a SchemaValidateFunc which tests if the provided value is of type string and a valid english day of the week
@@ -51,11 +51,4 @@ func IsRFC3339Time(i interface{}, k string) (warnings []string, errors []error) 
 	}
 
 	return warnings, errors
-}
-
-// ValidateRFC3339TimeString is a ValidateFunc that ensures a string parses as time.RFC3339 format
-//
-// Deprecated: use IsRFC3339Time() instead
-func ValidateRFC3339TimeString(i interface{}, k string) (warnings []string, errors []error) {
-	return IsRFC3339Time(i, k)
 }

@@ -1,12 +1,14 @@
 #!/bin/bash
 
 set -e
+set -x
 
-# Prepare will prepare the repository for release
+# release.sh will:
 # 1. Modify changelog
 # 2. Run changelog links script
-# 3. Commit changes
-# 4. Create a Git tag
+# 3. Modify version in meta/meta.go
+# 4. Commit and push changes
+# 5. Create a Git tag
 
 function pleaseUseGNUsed {
     echo "Please install GNU sed to your PATH as 'sed'."
@@ -28,13 +30,27 @@ function init {
   fi
 
   TARGET_VERSION="$(getTargetVersion)"
+  TARGET_VERSION_CORE="$(getVersionCore)"
+  TARGET_VERSION_PRERELEASE="$(getVersionPrerelease)"
 }
+
+semverRegex='\([0-9]\+\.[0-9]\+\.[0-9]\+\)\(-\?\)\([0-9a-zA-Z.]\+\)\?'
 
 function getTargetVersion {
   # parse target version from CHANGELOG
-  sed -n 's/^# \([0-9]\+\.[0-9]\+\.[0-9]\+\) (Unreleased)$/\1/p' CHANGELOG.md || \
+  sed -n 's/^# '"$semverRegex"' (Unreleased)$/\1\2\3/p' CHANGELOG.md || \
      (echo "\nTarget version not found in changelog, exiting" && \
        exit 1)
+}
+
+function getVersionCore {
+    # extract major.minor.patch version, e.g. 1.2.3
+    echo "${TARGET_VERSION}" | sed -n 's/'"$semverRegex"'/\1/p'
+}
+
+function getVersionPrerelease {
+    # extract prerelease version, e.g. rc.1
+    echo "${TARGET_VERSION}" | sed -n 's/'"$semverRegex"'/\3/p'
 }
 
 function modifyChangelog {
@@ -55,8 +71,8 @@ function changelogMain {
 }
 
 function modifyVersionFiles {
-  sed -i "s/var SDKVersion =.*/var SDKVersion = \"${TARGET_VERSION}\"/" meta/meta.go
-  sed -i "s/var SDKPrerelease =.*/var SDKPrerelease = \"\"/" meta/meta.go
+  sed -i "s/var SDKVersion =.*/var SDKVersion = \"${TARGET_VERSION_CORE}\"/" meta/meta.go
+  sed -i "s/var SDKPrerelease =.*/var SDKPrerelease = \"${TARGET_VERSION_PRERELEASE}\"/" meta/meta.go
 }
 
 function commitChanges {
@@ -72,7 +88,7 @@ function commitChanges {
       git tag -a -m "v${TARGET_VERSION}" -s "v${TARGET_VERSION}"
   fi
 
-  git push origin master
+  git push origin "${CIRCLE_BRANCH}"
   git push origin "v${TARGET_VERSION}"
 }
 

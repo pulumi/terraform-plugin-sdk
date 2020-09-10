@@ -14,9 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/ssh"
-
 	"github.com/apparentlymart/go-cidr/cidr"
+	"golang.org/x/crypto/ssh"
 )
 
 func init() {
@@ -37,11 +36,12 @@ func RandomWithPrefix(name string) string {
 	return fmt.Sprintf("%s-%d", name, rand.New(rand.NewSource(time.Now().UnixNano())).Int())
 }
 
+// RandIntRange returns a random integer between min (inclusive) and max (exclusive)
 func RandIntRange(min int, max int) int {
 	source := rand.New(rand.NewSource(time.Now().UnixNano()))
 	rangeMax := max - min
 
-	return int(source.Int31n(int32(rangeMax)))
+	return int(source.Int31n(int32(rangeMax))) + min
 }
 
 // RandString generates a random alphanumeric string of the length specified

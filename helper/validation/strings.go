@@ -6,8 +6,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
-	"github.com/hashicorp/terraform-plugin-sdk/helper/structure"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/structure"
 )
 
 // StringIsNotEmpty is a ValidateFunc that ensures a string is not empty
@@ -148,6 +148,28 @@ func StringInSlice(valid []string, ignoreCase bool) schema.SchemaValidateFunc {
 	}
 }
 
+// StringNotInSlice returns a SchemaValidateFunc which tests if the provided value
+// is of type string and does not match the value of any element in the invalid slice
+// will test with in lower case if ignoreCase is true
+func StringNotInSlice(invalid []string, ignoreCase bool) schema.SchemaValidateFunc {
+	return func(i interface{}, k string) (warnings []string, errors []error) {
+		v, ok := i.(string)
+		if !ok {
+			errors = append(errors, fmt.Errorf("expected type of %s to be string", k))
+			return warnings, errors
+		}
+
+		for _, str := range invalid {
+			if v == str || (ignoreCase && strings.ToLower(v) == strings.ToLower(str)) {
+				errors = append(errors, fmt.Errorf("expected %s to not be any of %v, got %s", k, invalid, v))
+				return warnings, errors
+			}
+		}
+
+		return warnings, errors
+	}
+}
+
 // StringDoesNotContainAny returns a SchemaValidateFunc which validates that the
 // provided value does not contain any of the specified Unicode code points in chars.
 func StringDoesNotContainAny(chars string) schema.SchemaValidateFunc {
@@ -184,14 +206,6 @@ func StringIsBase64(i interface{}, k string) (warnings []string, errors []error)
 	return warnings, errors
 }
 
-// ValidateJsonString is a SchemaValidateFunc which tests to make sure the
-// supplied string is valid JSON.
-//
-// Deprecated: use StringIsJSON instead
-func ValidateJsonString(i interface{}, k string) (warnings []string, errors []error) {
-	return StringIsJSON(i, k)
-}
-
 // StringIsJSON is a SchemaValidateFunc which tests to make sure the supplied string is valid JSON.
 func StringIsJSON(i interface{}, k string) (warnings []string, errors []error) {
 	v, ok := i.(string)
@@ -205,14 +219,6 @@ func StringIsJSON(i interface{}, k string) (warnings []string, errors []error) {
 	}
 
 	return warnings, errors
-}
-
-// ValidateRegexp returns a SchemaValidateFunc which tests to make sure the
-// supplied string is a valid regular expression.
-//
-// Deprecated: use StringIsValidRegExp instead
-func ValidateRegexp(i interface{}, k string) (warnings []string, errors []error) {
-	return StringIsValidRegExp(i, k)
 }
 
 // StringIsValidRegExp returns a SchemaValidateFunc which tests to make sure the supplied string is a valid regular expression.

@@ -1,22 +1,23 @@
 package schema
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/zclconf/go-cty/cty"
+	"github.com/hashicorp/go-cty/cty"
 
-	"github.com/hashicorp/terraform-plugin-sdk/internal/configs/configschema"
-	"github.com/hashicorp/terraform-plugin-sdk/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/internal/configs/configschema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/internal/diagutils"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/meta"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
-
-func TestProvider_impl(t *testing.T) {
-	var _ terraform.ResourceProvider = new(Provider)
-}
 
 func TestProviderGetSchema(t *testing.T) {
 	// This functionality is already broadly tested in core_schema_test.go,
@@ -29,7 +30,7 @@ func TestProviderGetSchema(t *testing.T) {
 			},
 		},
 		ResourcesMap: map[string]*Resource{
-			"foo": &Resource{
+			"foo": {
 				Schema: map[string]*Schema{
 					"bar": {
 						Type:     TypeString,
@@ -39,7 +40,7 @@ func TestProviderGetSchema(t *testing.T) {
 			},
 		},
 		DataSourcesMap: map[string]*Resource{
-			"baz": &Resource{
+			"baz": {
 				Schema: map[string]*Schema{
 					"bur": {
 						Type:     TypeString,
@@ -53,7 +54,7 @@ func TestProviderGetSchema(t *testing.T) {
 	want := &terraform.ProviderSchema{
 		Provider: &configschema.Block{
 			Attributes: map[string]*configschema.Attribute{
-				"bar": &configschema.Attribute{
+				"bar": {
 					Type:     cty.String,
 					Required: true,
 				},
@@ -63,7 +64,7 @@ func TestProviderGetSchema(t *testing.T) {
 		ResourceTypes: map[string]*configschema.Block{
 			"foo": testResource(&configschema.Block{
 				Attributes: map[string]*configschema.Attribute{
-					"bar": &configschema.Attribute{
+					"bar": {
 						Type:     cty.String,
 						Required: true,
 					},
@@ -74,7 +75,7 @@ func TestProviderGetSchema(t *testing.T) {
 		DataSources: map[string]*configschema.Block{
 			"baz": testResource(&configschema.Block{
 				Attributes: map[string]*configschema.Attribute{
-					"bur": &configschema.Attribute{
+					"bur": {
 						Type:     cty.String,
 						Required: true,
 					},
@@ -111,7 +112,7 @@ func TestProviderConfigure(t *testing.T) {
 		{
 			P: &Provider{
 				Schema: map[string]*Schema{
-					"foo": &Schema{
+					"foo": {
 						Type:     TypeInt,
 						Optional: true,
 					},
@@ -134,7 +135,30 @@ func TestProviderConfigure(t *testing.T) {
 		{
 			P: &Provider{
 				Schema: map[string]*Schema{
-					"foo": &Schema{
+					"foo": {
+						Type:     TypeInt,
+						Optional: true,
+					},
+				},
+
+				ConfigureContextFunc: func(ctx context.Context, d *ResourceData) (interface{}, diag.Diagnostics) {
+					if d.Get("foo").(int) == 42 {
+						return nil, nil
+					}
+
+					return nil, diag.Errorf("nope")
+				},
+			},
+			Config: map[string]interface{}{
+				"foo": 42,
+			},
+			Err: false,
+		},
+
+		{
+			P: &Provider{
+				Schema: map[string]*Schema{
+					"foo": {
 						Type:     TypeInt,
 						Optional: true,
 					},
@@ -157,9 +181,9 @@ func TestProviderConfigure(t *testing.T) {
 
 	for i, tc := range cases {
 		c := terraform.NewResourceConfigRaw(tc.Config)
-		err := tc.P.Configure(c)
-		if err != nil != tc.Err {
-			t.Fatalf("%d: %s", i, err)
+		diags := tc.P.Configure(context.Background(), c)
+		if diags.HasError() != tc.Err {
+			t.Fatalf("%d: %s", i, diagutils.ErrorDiags(diags))
 		}
 	}
 }
@@ -182,8 +206,8 @@ func TestProviderResources(t *testing.T) {
 				},
 			},
 			Result: []terraform.ResourceType{
-				terraform.ResourceType{Name: "bar", SchemaAvailable: true},
-				terraform.ResourceType{Name: "foo", SchemaAvailable: true},
+				{Name: "bar", SchemaAvailable: true},
+				{Name: "foo", SchemaAvailable: true},
 			},
 		},
 
@@ -191,14 +215,14 @@ func TestProviderResources(t *testing.T) {
 			P: &Provider{
 				ResourcesMap: map[string]*Resource{
 					"foo": nil,
-					"bar": &Resource{Importer: &ResourceImporter{}},
+					"bar": {Importer: &ResourceImporter{}},
 					"baz": nil,
 				},
 			},
 			Result: []terraform.ResourceType{
-				terraform.ResourceType{Name: "bar", Importable: true, SchemaAvailable: true},
-				terraform.ResourceType{Name: "baz", SchemaAvailable: true},
-				terraform.ResourceType{Name: "foo", SchemaAvailable: true},
+				{Name: "bar", Importable: true, SchemaAvailable: true},
+				{Name: "baz", SchemaAvailable: true},
+				{Name: "foo", SchemaAvailable: true},
 			},
 		},
 	}
@@ -229,8 +253,8 @@ func TestProviderDataSources(t *testing.T) {
 				},
 			},
 			Result: []terraform.DataSource{
-				terraform.DataSource{Name: "bar", SchemaAvailable: true},
-				terraform.DataSource{Name: "foo", SchemaAvailable: true},
+				{Name: "bar", SchemaAvailable: true},
+				{Name: "foo", SchemaAvailable: true},
 			},
 		},
 	}
@@ -252,7 +276,7 @@ func TestProviderValidate(t *testing.T) {
 		{
 			P: &Provider{
 				Schema: map[string]*Schema{
-					"foo": &Schema{},
+					"foo": {},
 				},
 			},
 			Config: nil,
@@ -262,9 +286,212 @@ func TestProviderValidate(t *testing.T) {
 
 	for i, tc := range cases {
 		c := terraform.NewResourceConfigRaw(tc.Config)
-		_, es := tc.P.Validate(c)
-		if len(es) > 0 != tc.Err {
-			t.Fatalf("%d: %#v", i, es)
+		diags := tc.P.Validate(c)
+		if diags.HasError() != tc.Err {
+			t.Fatalf("%d: %#v", i, diags)
+		}
+	}
+}
+
+func TestProviderValidate_attributePath(t *testing.T) {
+	cases := []struct {
+		P             *Provider
+		Config        map[string]interface{}
+		ExpectedDiags diag.Diagnostics
+	}{
+		{ // legacy validate path automatically built, even across list
+			P: &Provider{
+				Schema: map[string]*Schema{
+					"foo": {
+						Type:     TypeList,
+						Required: true,
+						Elem: &Resource{
+							Schema: map[string]*Schema{
+								"bar": {
+									Type:     TypeString,
+									Required: true,
+									ValidateFunc: func(v interface{}, k string) ([]string, []error) {
+										return []string{"warn"}, []error{fmt.Errorf("error")}
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			Config: map[string]interface{}{
+				"foo": []interface{}{
+					map[string]interface{}{
+						"bar": "baz",
+					},
+				},
+			},
+			ExpectedDiags: diag.Diagnostics{
+				{
+					Severity:      diag.Warning,
+					AttributePath: cty.Path{cty.GetAttrStep{Name: "foo"}, cty.IndexStep{Key: cty.NumberIntVal(0)}, cty.GetAttrStep{Name: "bar"}},
+				},
+				{
+					Severity:      diag.Error,
+					AttributePath: cty.Path{cty.GetAttrStep{Name: "foo"}, cty.IndexStep{Key: cty.NumberIntVal(0)}, cty.GetAttrStep{Name: "bar"}},
+				},
+			},
+		},
+		{ // validate path automatically built, even across list
+			P: &Provider{
+				Schema: map[string]*Schema{
+					"foo": {
+						Type:     TypeList,
+						Required: true,
+						Elem: &Resource{
+							Schema: map[string]*Schema{
+								"bar": {
+									Type:     TypeString,
+									Required: true,
+									ValidateDiagFunc: func(v interface{}, path cty.Path) diag.Diagnostics {
+										return diag.Diagnostics{{Severity: diag.Error}}
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			Config: map[string]interface{}{
+				"foo": []interface{}{
+					map[string]interface{}{
+						"bar": "baz",
+					},
+				},
+			},
+			ExpectedDiags: diag.Diagnostics{
+				{
+					Severity:      diag.Error,
+					AttributePath: cty.Path{cty.GetAttrStep{Name: "foo"}, cty.IndexStep{Key: cty.NumberIntVal(0)}, cty.GetAttrStep{Name: "bar"}},
+				},
+			},
+		},
+		{ // path is truncated at typeset
+			P: &Provider{
+				Schema: map[string]*Schema{
+					"foo": {
+						Type:     TypeSet,
+						Required: true,
+						Elem: &Resource{
+							Schema: map[string]*Schema{
+								"bar": {
+									Type:     TypeString,
+									Required: true,
+									ValidateDiagFunc: func(v interface{}, path cty.Path) diag.Diagnostics {
+										return diag.Diagnostics{{Severity: diag.Error, AttributePath: cty.Path{cty.GetAttrStep{Name: "doesnotmatter"}}}}
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			Config: map[string]interface{}{
+				"foo": []interface{}{
+					map[string]interface{}{
+						"bar": "baz",
+					},
+				},
+			},
+			ExpectedDiags: diag.Diagnostics{
+				{
+					Severity:      diag.Error,
+					AttributePath: cty.Path{cty.GetAttrStep{Name: "foo"}},
+				},
+			},
+		},
+		{ // relative path is appended
+			P: &Provider{
+				Schema: map[string]*Schema{
+					"foo": {
+						Type:     TypeList,
+						Required: true,
+						Elem: &Resource{
+							Schema: map[string]*Schema{
+								"bar": {
+									Type:     TypeMap,
+									Required: true,
+									ValidateDiagFunc: func(v interface{}, path cty.Path) diag.Diagnostics {
+										return diag.Diagnostics{{Severity: diag.Error, AttributePath: cty.Path{cty.IndexStep{Key: cty.StringVal("mapkey")}}}}
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			Config: map[string]interface{}{
+				"foo": []interface{}{
+					map[string]interface{}{
+						"bar": map[string]interface{}{
+							"mapkey": "val",
+						},
+					},
+				},
+			},
+			ExpectedDiags: diag.Diagnostics{
+				{
+					Severity:      diag.Error,
+					AttributePath: cty.Path{cty.GetAttrStep{Name: "foo"}, cty.IndexStep{Key: cty.NumberIntVal(0)}, cty.GetAttrStep{Name: "bar"}, cty.IndexStep{Key: cty.StringVal("mapkey")}},
+				},
+			},
+		},
+		{ // absolute path is not altered
+			P: &Provider{
+				Schema: map[string]*Schema{
+					"foo": {
+						Type:     TypeList,
+						Required: true,
+						Elem: &Resource{
+							Schema: map[string]*Schema{
+								"bar": {
+									Type:     TypeMap,
+									Required: true,
+									ValidateDiagFunc: func(v interface{}, path cty.Path) diag.Diagnostics {
+										return diag.Diagnostics{{Severity: diag.Error, AttributePath: append(path, cty.IndexStep{Key: cty.StringVal("mapkey")})}}
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			Config: map[string]interface{}{
+				"foo": []interface{}{
+					map[string]interface{}{
+						"bar": map[string]interface{}{
+							"mapkey": "val",
+						},
+					},
+				},
+			},
+			ExpectedDiags: diag.Diagnostics{
+				{
+					Severity:      diag.Error,
+					AttributePath: cty.Path{cty.GetAttrStep{Name: "foo"}, cty.IndexStep{Key: cty.NumberIntVal(0)}, cty.GetAttrStep{Name: "bar"}, cty.IndexStep{Key: cty.StringVal("mapkey")}},
+				},
+			},
+		},
+	}
+
+	for i, tc := range cases {
+		c := terraform.NewResourceConfigRaw(tc.Config)
+		diags := tc.P.Validate(c)
+		if len(diags) != len(tc.ExpectedDiags) {
+			t.Fatalf("%d: wrong number of diags, expected %d, got %d", i, len(tc.ExpectedDiags), len(diags))
+		}
+		for j := range diags {
+			if diags[j].Severity != tc.ExpectedDiags[j].Severity {
+				t.Fatalf("%d: expected severity %v, got %v", i, tc.ExpectedDiags[j].Severity, diags[j].Severity)
+			}
+			if !diags[j].AttributePath.Equals(tc.ExpectedDiags[j].AttributePath) {
+				t.Fatalf("%d: attribute paths do not match expected: %v, got %v", i, tc.ExpectedDiags[j].AttributePath, diags[j].AttributePath)
+			}
 		}
 	}
 }
@@ -272,7 +499,7 @@ func TestProviderValidate(t *testing.T) {
 func TestProviderDiff_legacyTimeoutType(t *testing.T) {
 	p := &Provider{
 		ResourcesMap: map[string]*Resource{
-			"blah": &Resource{
+			"blah": {
 				Schema: map[string]*Schema{
 					"foo": {
 						Type:     TypeInt,
@@ -295,12 +522,11 @@ func TestProviderDiff_legacyTimeoutType(t *testing.T) {
 		},
 	}
 	ic := terraform.NewResourceConfigRaw(invalidCfg)
-	_, err := p.Diff(
-		&terraform.InstanceInfo{
-			Type: "blah",
-		},
+	_, err := p.ResourcesMap["blah"].Diff(
+		context.Background(),
 		nil,
 		ic,
+		p.Meta(),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -310,7 +536,7 @@ func TestProviderDiff_legacyTimeoutType(t *testing.T) {
 func TestProviderDiff_timeoutInvalidValue(t *testing.T) {
 	p := &Provider{
 		ResourcesMap: map[string]*Resource{
-			"blah": &Resource{
+			"blah": {
 				Schema: map[string]*Schema{
 					"foo": {
 						Type:     TypeInt,
@@ -331,12 +557,11 @@ func TestProviderDiff_timeoutInvalidValue(t *testing.T) {
 		},
 	}
 	ic := terraform.NewResourceConfigRaw(invalidCfg)
-	_, err := p.Diff(
-		&terraform.InstanceInfo{
-			Type: "blah",
-		},
+	_, err := p.ResourcesMap["blah"].Diff(
+		context.Background(),
 		nil,
 		ic,
+		p.Meta(),
 	)
 	if err == nil {
 		t.Fatal("Expected provider.Diff to fail with invalid timeout value")
@@ -366,7 +591,7 @@ func TestProviderValidateResource(t *testing.T) {
 		{
 			P: &Provider{
 				ResourcesMap: map[string]*Resource{
-					"foo": &Resource{},
+					"foo": {},
 				},
 			},
 			Type:   "foo",
@@ -377,9 +602,9 @@ func TestProviderValidateResource(t *testing.T) {
 
 	for i, tc := range cases {
 		c := terraform.NewResourceConfigRaw(tc.Config)
-		_, es := tc.P.ValidateResource(tc.Type, c)
-		if len(es) > 0 != tc.Err {
-			t.Fatalf("%d: %#v", i, es)
+		diags := tc.P.ValidateResource(tc.Type, c)
+		if diags.HasError() != tc.Err {
+			t.Fatalf("%d: %#v", i, diags)
 		}
 	}
 }
@@ -387,13 +612,13 @@ func TestProviderValidateResource(t *testing.T) {
 func TestProviderImportState_default(t *testing.T) {
 	p := &Provider{
 		ResourcesMap: map[string]*Resource{
-			"foo": &Resource{
+			"foo": {
 				Importer: &ResourceImporter{},
 			},
 		},
 	}
 
-	states, err := p.ImportState(&terraform.InstanceInfo{
+	states, err := p.ImportState(context.Background(), &terraform.InstanceInfo{
 		Type: "foo",
 	}, "bar")
 	if err != nil {
@@ -417,7 +642,7 @@ func TestProviderImportState_setsId(t *testing.T) {
 
 	p := &Provider{
 		ResourcesMap: map[string]*Resource{
-			"foo": &Resource{
+			"foo": {
 				Importer: &ResourceImporter{
 					State: stateFunc,
 				},
@@ -425,7 +650,7 @@ func TestProviderImportState_setsId(t *testing.T) {
 		},
 	}
 
-	_, err := p.ImportState(&terraform.InstanceInfo{
+	_, err := p.ImportState(context.Background(), &terraform.InstanceInfo{
 		Type: "foo",
 	}, "bar")
 	if err != nil {
@@ -447,7 +672,7 @@ func TestProviderImportState_setsType(t *testing.T) {
 
 	p := &Provider{
 		ResourcesMap: map[string]*Resource{
-			"foo": &Resource{
+			"foo": {
 				Importer: &ResourceImporter{
 					State: stateFunc,
 				},
@@ -455,7 +680,7 @@ func TestProviderImportState_setsType(t *testing.T) {
 		},
 	}
 
-	_, err := p.ImportState(&terraform.InstanceInfo{
+	_, err := p.ImportState(context.Background(), &terraform.InstanceInfo{
 		Type: "foo",
 	}, "bar")
 	if err != nil {
@@ -477,84 +702,6 @@ func TestProviderMeta(t *testing.T) {
 	p.SetMeta(42)
 	if v := p.Meta(); !reflect.DeepEqual(v, expected) {
 		t.Fatalf("bad: %#v", v)
-	}
-}
-
-func TestProviderStop(t *testing.T) {
-	var p Provider
-
-	if p.Stopped() {
-		t.Fatal("should not be stopped")
-	}
-
-	// Verify stopch blocks
-	ch := p.StopContext().Done()
-	select {
-	case <-ch:
-		t.Fatal("should not be stopped")
-	case <-time.After(10 * time.Millisecond):
-	}
-
-	// Stop it
-	if err := p.Stop(); err != nil {
-		t.Fatalf("err: %s", err)
-	}
-
-	// Verify
-	if !p.Stopped() {
-		t.Fatal("should be stopped")
-	}
-
-	select {
-	case <-ch:
-	case <-time.After(10 * time.Millisecond):
-		t.Fatal("should be stopped")
-	}
-}
-
-func TestProviderStop_stopFirst(t *testing.T) {
-	var p Provider
-
-	// Stop it
-	if err := p.Stop(); err != nil {
-		t.Fatalf("err: %s", err)
-	}
-
-	// Verify
-	if !p.Stopped() {
-		t.Fatal("should be stopped")
-	}
-
-	select {
-	case <-p.StopContext().Done():
-	case <-time.After(10 * time.Millisecond):
-		t.Fatal("should be stopped")
-	}
-}
-
-func TestProviderReset(t *testing.T) {
-	var p Provider
-	stopCtx := p.StopContext()
-	p.MetaReset = func() error {
-		stopCtx = p.StopContext()
-		return nil
-	}
-
-	// cancel the current context
-	p.Stop()
-
-	if err := p.TestReset(); err != nil {
-		t.Fatal(err)
-	}
-
-	// the first context should have been replaced
-	if err := stopCtx.Err(); err != nil {
-		t.Fatal(err)
-	}
-
-	// we should not get a canceled context here either
-	if err := p.StopContext().Err(); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -600,6 +747,23 @@ func TestProvider_InternalValidate(t *testing.T) {
 			},
 			ExpectedErr: fmt.Errorf("%s is a reserved field name for a provider", "alias"),
 		},
+		{ // ConfigureFunc and ConfigureContext cannot both be set
+			P: &Provider{
+				Schema: map[string]*Schema{
+					"foo": {
+						Type:     TypeString,
+						Optional: true,
+					},
+				},
+				ConfigureFunc: func(d *ResourceData) (interface{}, error) {
+					return nil, nil
+				},
+				ConfigureContextFunc: func(ctx context.Context, d *ResourceData) (interface{}, diag.Diagnostics) {
+					return nil, nil
+				},
+			},
+			ExpectedErr: fmt.Errorf("ConfigureFunc and ConfigureContextFunc must not both be set"),
+		},
 	}
 
 	for i, tc := range cases {
@@ -616,5 +780,50 @@ func TestProvider_InternalValidate(t *testing.T) {
 		if err.Error() != tc.ExpectedErr.Error() {
 			t.Fatalf("%d: Errors don't match. Expected: %#v Given: %#v", i, tc.ExpectedErr, err)
 		}
+	}
+}
+
+func TestProviderUserAgentAppendViaEnvVar(t *testing.T) {
+	if oldenv, isSet := os.LookupEnv(uaEnvVar); isSet {
+		defer os.Setenv(uaEnvVar, oldenv)
+	} else {
+		defer os.Unsetenv(uaEnvVar)
+	}
+
+	expectedBase := "Terraform/4.5.6 (+https://www.terraform.io) Terraform-Plugin-SDK/" + meta.SDKVersionString()
+
+	testCases := []struct {
+		providerName    string
+		providerVersion string
+		envVarValue     string
+		expected        string
+	}{
+		{"", "", "", expectedBase},
+		{"", "", " ", expectedBase},
+		{"", "", " \n", expectedBase},
+		{"", "", "test/1", expectedBase + " test/1"},
+		{"", "", "test/1 (comment)", expectedBase + " test/1 (comment)"},
+		{"My-Provider", "", "", expectedBase + " My-Provider"},
+		{"My-Provider", "", " ", expectedBase + " My-Provider"},
+		{"My-Provider", "", " \n", expectedBase + " My-Provider"},
+		{"My-Provider", "", "test/1", expectedBase + " My-Provider test/1"},
+		{"My-Provider", "", "test/1 (comment)", expectedBase + " My-Provider test/1 (comment)"},
+		{"My-Provider", "1.2.3", "", expectedBase + " My-Provider/1.2.3"},
+		{"My-Provider", "1.2.3", " ", expectedBase + " My-Provider/1.2.3"},
+		{"My-Provider", "1.2.3", " \n", expectedBase + " My-Provider/1.2.3"},
+		{"My-Provider", "1.2.3", "test/1", expectedBase + " My-Provider/1.2.3 test/1"},
+		{"My-Provider", "1.2.3", "test/1 (comment)", expectedBase + " My-Provider/1.2.3 test/1 (comment)"},
+	}
+
+	for i, tc := range testCases {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			os.Unsetenv(uaEnvVar)
+			os.Setenv(uaEnvVar, tc.envVarValue)
+			p := &Provider{TerraformVersion: "4.5.6"}
+			givenUA := p.UserAgent(tc.providerName, tc.providerVersion)
+			if givenUA != tc.expected {
+				t.Fatalf("Expected User-Agent '%s' does not match '%s'", tc.expected, givenUA)
+			}
+		})
 	}
 }

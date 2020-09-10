@@ -2,6 +2,7 @@ package schema
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
@@ -11,13 +12,15 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/hashicorp/terraform-plugin-sdk/helper/hashcode"
-	"github.com/hashicorp/terraform-plugin-sdk/internal/configs/configschema"
-	"github.com/hashicorp/terraform-plugin-sdk/internal/configs/hcl2shim"
-	"github.com/hashicorp/terraform-plugin-sdk/internal/providers"
-	"github.com/hashicorp/terraform-plugin-sdk/internal/tfdiags"
-	"github.com/hashicorp/terraform-plugin-sdk/terraform"
-	"github.com/zclconf/go-cty/cty"
+	"github.com/hashicorp/go-cty/cty"
+
+	"github.com/hashicorp/terraform-plugin-sdk/v2/internal/configs/configschema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/internal/configs/hcl2shim"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/internal/diagutils"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/internal/helper/hashcode"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/internal/providers"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/internal/tfdiags"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
 
 var (
@@ -83,7 +86,7 @@ func TestShimResourcePlan_destroyCreate(t *testing.T) {
 	r := &Resource{
 		SchemaVersion: 2,
 		Schema: map[string]*Schema{
-			"foo": &Schema{
+			"foo": {
 				Type:     TypeInt,
 				Optional: true,
 				ForceNew: true,
@@ -93,7 +96,7 @@ func TestShimResourcePlan_destroyCreate(t *testing.T) {
 
 	d := &terraform.InstanceDiff{
 		Attributes: map[string]*terraform.ResourceAttrDiff{
-			"foo": &terraform.ResourceAttrDiff{
+			"foo": {
 				RequiresNew: true,
 				Old:         "3",
 				New:         "42",
@@ -123,7 +126,7 @@ func TestShimResourceApply_create(t *testing.T) {
 	r := &Resource{
 		SchemaVersion: 2,
 		Schema: map[string]*Schema{
-			"foo": &Schema{
+			"foo": {
 				Type:     TypeInt,
 				Optional: true,
 			},
@@ -141,15 +144,15 @@ func TestShimResourceApply_create(t *testing.T) {
 
 	d := &terraform.InstanceDiff{
 		Attributes: map[string]*terraform.ResourceAttrDiff{
-			"foo": &terraform.ResourceAttrDiff{
+			"foo": {
 				New: "42",
 			},
 		},
 	}
 
-	actual, err := r.Apply(s, d, nil)
-	if err != nil {
-		t.Fatalf("err: %s", err)
+	actual, diags := r.Apply(context.Background(), s, d, nil)
+	if diags.HasError() {
+		t.Fatalf("err: %s", diagutils.ErrorDiags(diags))
 	}
 
 	if !called {
@@ -187,7 +190,7 @@ func TestShimResourceApply_Timeout_state(t *testing.T) {
 	r := &Resource{
 		SchemaVersion: 2,
 		Schema: map[string]*Schema{
-			"foo": &Schema{
+			"foo": {
 				Type:     TypeInt,
 				Optional: true,
 			},
@@ -210,7 +213,7 @@ func TestShimResourceApply_Timeout_state(t *testing.T) {
 
 	d := &terraform.InstanceDiff{
 		Attributes: map[string]*terraform.ResourceAttrDiff{
-			"foo": &terraform.ResourceAttrDiff{
+			"foo": {
 				New: "42",
 			},
 		},
@@ -226,9 +229,9 @@ func TestShimResourceApply_Timeout_state(t *testing.T) {
 		t.Fatalf("Error encoding timeout to diff: %s", err)
 	}
 
-	actual, err := r.Apply(s, d, nil)
-	if err != nil {
-		t.Fatalf("err: %s", err)
+	actual, diags := r.Apply(context.Background(), s, d, nil)
+	if diags.HasError() {
+		t.Fatalf("err: %s", diagutils.ErrorDiags(diags))
 	}
 
 	if !called {
@@ -264,7 +267,7 @@ func TestShimResourceApply_Timeout_state(t *testing.T) {
 func TestShimResourceDiff_Timeout_diff(t *testing.T) {
 	r := &Resource{
 		Schema: map[string]*Schema{
-			"foo": &Schema{
+			"foo": {
 				Type:     TypeInt,
 				Optional: true,
 			},
@@ -289,14 +292,14 @@ func TestShimResourceDiff_Timeout_diff(t *testing.T) {
 	})
 	var s *terraform.InstanceState
 
-	actual, err := r.Diff(s, conf, nil)
+	actual, err := r.Diff(context.Background(), s, conf, nil)
 	if err != nil {
 		t.Fatalf("err: %s", err)
 	}
 
 	expected := &terraform.InstanceDiff{
 		Attributes: map[string]*terraform.ResourceAttrDiff{
-			"foo": &terraform.ResourceAttrDiff{
+			"foo": {
 				New: "42",
 			},
 		},
@@ -318,8 +321,8 @@ func TestShimResourceDiff_Timeout_diff(t *testing.T) {
 
 	// Shim
 	// apply this diff, so we have a state to compare
-	applied, err := r.Apply(s, actual, nil)
-	if err != nil {
+	applied, diags := r.Apply(context.Background(), s, actual, nil)
+	if diags.HasError() {
 		t.Fatal(err)
 	}
 
@@ -344,7 +347,7 @@ func TestShimResourceDiff_Timeout_diff(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d, err := DiffFromValues(initialVal, appliedVal, r)
+	d, err := DiffFromValues(context.Background(), initialVal, appliedVal, r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +359,7 @@ func TestShimResourceDiff_Timeout_diff(t *testing.T) {
 func TestShimResourceApply_destroy(t *testing.T) {
 	r := &Resource{
 		Schema: map[string]*Schema{
-			"foo": &Schema{
+			"foo": {
 				Type:     TypeInt,
 				Optional: true,
 			},
@@ -377,9 +380,9 @@ func TestShimResourceApply_destroy(t *testing.T) {
 		Destroy: true,
 	}
 
-	actual, err := r.Apply(s, d, nil)
-	if err != nil {
-		t.Fatalf("err: %s", err)
+	actual, diags := r.Apply(context.Background(), s, d, nil)
+	if diags.HasError() {
+		t.Fatalf("err: %s", diagutils.ErrorDiags(diags))
 	}
 
 	if !called {
@@ -399,13 +402,13 @@ func TestShimResourceApply_destroy(t *testing.T) {
 func TestShimResourceApply_destroyCreate(t *testing.T) {
 	r := &Resource{
 		Schema: map[string]*Schema{
-			"foo": &Schema{
+			"foo": {
 				Type:     TypeInt,
 				Optional: true,
 				ForceNew: true,
 			},
 
-			"tags": &Schema{
+			"tags": {
 				Type:     TypeMap,
 				Optional: true,
 				Computed: true,
@@ -433,15 +436,15 @@ func TestShimResourceApply_destroyCreate(t *testing.T) {
 
 	d := &terraform.InstanceDiff{
 		Attributes: map[string]*terraform.ResourceAttrDiff{
-			"id": &terraform.ResourceAttrDiff{
+			"id": {
 				New: "foo",
 			},
-			"foo": &terraform.ResourceAttrDiff{
+			"foo": {
 				Old:         "7",
 				New:         "42",
 				RequiresNew: true,
 			},
-			"tags.Name": &terraform.ResourceAttrDiff{
+			"tags.Name": {
 				Old:         "foo",
 				New:         "foo",
 				RequiresNew: true,
@@ -449,9 +452,9 @@ func TestShimResourceApply_destroyCreate(t *testing.T) {
 		},
 	}
 
-	actual, err := r.Apply(s, d, nil)
-	if err != nil {
-		t.Fatalf("err: %s", err)
+	actual, diags := r.Apply(context.Background(), s, d, nil)
+	if diags.HasError() {
+		t.Fatalf("err: %s", diagutils.ErrorDiags(diags))
 	}
 
 	if !change {
@@ -502,7 +505,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "diff-1",
 			Schema: map[string]*Schema{
-				"availability_zone": &Schema{
+				"availability_zone": {
 					Type:     TypeString,
 					Optional: true,
 					Computed: true,
@@ -518,7 +521,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"availability_zone": &terraform.ResourceAttrDiff{
+					"availability_zone": {
 						Old:         "",
 						New:         "foo",
 						RequiresNew: true,
@@ -532,7 +535,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "diff-2",
 			Schema: map[string]*Schema{
-				"availability_zone": &Schema{
+				"availability_zone": {
 					Type:     TypeString,
 					Optional: true,
 					Computed: true,
@@ -546,7 +549,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"availability_zone": &terraform.ResourceAttrDiff{
+					"availability_zone": {
 						Old:         "",
 						NewComputed: true,
 						RequiresNew: true,
@@ -560,7 +563,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "diff-3",
 			Schema: map[string]*Schema{
-				"availability_zone": &Schema{
+				"availability_zone": {
 					Type:     TypeString,
 					Optional: true,
 					Computed: true,
@@ -582,7 +585,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Computed, but set in config",
 			Schema: map[string]*Schema{
-				"availability_zone": &Schema{
+				"availability_zone": {
 					Type:     TypeString,
 					Optional: true,
 					Computed: true,
@@ -602,7 +605,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"availability_zone": &terraform.ResourceAttrDiff{
+					"availability_zone": {
 						Old: "foo",
 						New: "bar",
 					},
@@ -615,7 +618,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Default",
 			Schema: map[string]*Schema{
-				"availability_zone": &Schema{
+				"availability_zone": {
 					Type:     TypeString,
 					Optional: true,
 					Default:  "foo",
@@ -628,7 +631,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"availability_zone": &terraform.ResourceAttrDiff{
+					"availability_zone": {
 						Old: "",
 						New: "foo",
 					},
@@ -641,7 +644,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "DefaultFunc, value",
 			Schema: map[string]*Schema{
-				"availability_zone": &Schema{
+				"availability_zone": {
 					Type:     TypeString,
 					Optional: true,
 					DefaultFunc: func() (interface{}, error) {
@@ -656,7 +659,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"availability_zone": &terraform.ResourceAttrDiff{
+					"availability_zone": {
 						Old: "",
 						New: "foo",
 					},
@@ -669,7 +672,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "DefaultFunc, configuration set",
 			Schema: map[string]*Schema{
-				"availability_zone": &Schema{
+				"availability_zone": {
 					Type:     TypeString,
 					Optional: true,
 					DefaultFunc: func() (interface{}, error) {
@@ -686,7 +689,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"availability_zone": &terraform.ResourceAttrDiff{
+					"availability_zone": {
 						Old: "",
 						New: "bar",
 					},
@@ -699,7 +702,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "String with StateFunc",
 			Schema: map[string]*Schema{
-				"availability_zone": &Schema{
+				"availability_zone": {
 					Type:     TypeString,
 					Optional: true,
 					Computed: true,
@@ -717,7 +720,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"availability_zone": &terraform.ResourceAttrDiff{
+					"availability_zone": {
 						Old:      "",
 						New:      "foo!",
 						NewExtra: "foo",
@@ -731,7 +734,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "StateFunc not called with nil value",
 			Schema: map[string]*Schema{
-				"availability_zone": &Schema{
+				"availability_zone": {
 					Type:     TypeString,
 					Optional: true,
 					Computed: true,
@@ -748,7 +751,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"availability_zone": &terraform.ResourceAttrDiff{
+					"availability_zone": {
 						Old:         "",
 						New:         "",
 						NewComputed: true,
@@ -762,7 +765,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Variable computed",
 			Schema: map[string]*Schema{
-				"availability_zone": &Schema{
+				"availability_zone": {
 					Type:     TypeString,
 					Optional: true,
 				},
@@ -776,7 +779,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"availability_zone": &terraform.ResourceAttrDiff{
+					"availability_zone": {
 						Old:         "",
 						New:         hcl2shim.UnknownVariableValue,
 						NewComputed: true,
@@ -790,7 +793,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Int decode",
 			Schema: map[string]*Schema{
-				"port": &Schema{
+				"port": {
 					Type:     TypeInt,
 					Optional: true,
 					Computed: true,
@@ -806,7 +809,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"port": &terraform.ResourceAttrDiff{
+					"port": {
 						Old:         "",
 						New:         "27",
 						RequiresNew: true,
@@ -820,7 +823,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "bool decode",
 			Schema: map[string]*Schema{
-				"port": &Schema{
+				"port": {
 					Type:     TypeBool,
 					Optional: true,
 					Computed: true,
@@ -836,7 +839,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"port": &terraform.ResourceAttrDiff{
+					"port": {
 						Old:         "",
 						New:         "false",
 						RequiresNew: true,
@@ -850,7 +853,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Bool",
 			Schema: map[string]*Schema{
-				"delete": &Schema{
+				"delete": {
 					Type:     TypeBool,
 					Optional: true,
 					Default:  false,
@@ -874,7 +877,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "List decode",
 			Schema: map[string]*Schema{
-				"ports": &Schema{
+				"ports": {
 					Type:     TypeList,
 					Required: true,
 					Elem:     &Schema{Type: TypeInt},
@@ -889,52 +892,19 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"ports.#": &terraform.ResourceAttrDiff{
+					"ports.#": {
 						Old: "0",
 						New: "3",
 					},
-					"ports.0": &terraform.ResourceAttrDiff{
+					"ports.0": {
 						Old: "",
 						New: "1",
 					},
-					"ports.1": &terraform.ResourceAttrDiff{
+					"ports.1": {
 						Old: "",
 						New: "2",
 					},
-					"ports.2": &terraform.ResourceAttrDiff{
-						Old: "",
-						New: "5",
-					},
-				},
-			},
-
-			Err: false,
-		},
-
-		{
-			Name: "List decode with promotion with list",
-			Schema: map[string]*Schema{
-				"ports": &Schema{
-					Type:          TypeList,
-					Required:      true,
-					Elem:          &Schema{Type: TypeInt},
-					PromoteSingle: true,
-				},
-			},
-
-			State: nil,
-
-			Config: map[string]interface{}{
-				"ports": []interface{}{"5"},
-			},
-
-			Diff: &terraform.InstanceDiff{
-				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"ports.#": &terraform.ResourceAttrDiff{
-						Old: "0",
-						New: "1",
-					},
-					"ports.0": &terraform.ResourceAttrDiff{
+					"ports.2": {
 						Old: "",
 						New: "5",
 					},
@@ -946,7 +916,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 		{
 			Schema: map[string]*Schema{
-				"ports": &Schema{
+				"ports": {
 					Type:     TypeList,
 					Required: true,
 					Elem:     &Schema{Type: TypeInt},
@@ -961,19 +931,19 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"ports.#": &terraform.ResourceAttrDiff{
+					"ports.#": {
 						Old: "0",
 						New: "3",
 					},
-					"ports.0": &terraform.ResourceAttrDiff{
+					"ports.0": {
 						Old: "",
 						New: "1",
 					},
-					"ports.1": &terraform.ResourceAttrDiff{
+					"ports.1": {
 						Old: "",
 						New: "2",
 					},
-					"ports.2": &terraform.ResourceAttrDiff{
+					"ports.2": {
 						Old: "",
 						New: "5",
 					},
@@ -985,7 +955,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 		{
 			Schema: map[string]*Schema{
-				"ports": &Schema{
+				"ports": {
 					Type:     TypeList,
 					Required: true,
 					Elem:     &Schema{Type: TypeInt},
@@ -1000,7 +970,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"ports.#": &terraform.ResourceAttrDiff{
+					"ports.#": {
 						Old:         "0",
 						New:         "",
 						NewComputed: true,
@@ -1013,7 +983,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 		{
 			Schema: map[string]*Schema{
-				"ports": &Schema{
+				"ports": {
 					Type:     TypeList,
 					Required: true,
 					Elem:     &Schema{Type: TypeInt},
@@ -1042,7 +1012,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "",
 			Schema: map[string]*Schema{
-				"ports": &Schema{
+				"ports": {
 					Type:     TypeList,
 					Required: true,
 					Elem:     &Schema{Type: TypeInt},
@@ -1064,11 +1034,11 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"ports.#": &terraform.ResourceAttrDiff{
+					"ports.#": {
 						Old: "2",
 						New: "3",
 					},
-					"ports.2": &terraform.ResourceAttrDiff{
+					"ports.2": {
 						Old: "",
 						New: "5",
 					},
@@ -1081,7 +1051,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "",
 			Schema: map[string]*Schema{
-				"ports": &Schema{
+				"ports": {
 					Type:     TypeList,
 					Required: true,
 					Elem:     &Schema{Type: TypeInt},
@@ -1097,22 +1067,22 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"ports.#": &terraform.ResourceAttrDiff{
+					"ports.#": {
 						Old:         "0",
 						New:         "3",
 						RequiresNew: true,
 					},
-					"ports.0": &terraform.ResourceAttrDiff{
+					"ports.0": {
 						Old:         "",
 						New:         "1",
 						RequiresNew: true,
 					},
-					"ports.1": &terraform.ResourceAttrDiff{
+					"ports.1": {
 						Old:         "",
 						New:         "2",
 						RequiresNew: true,
 					},
-					"ports.2": &terraform.ResourceAttrDiff{
+					"ports.2": {
 						Old:         "",
 						New:         "5",
 						RequiresNew: true,
@@ -1126,7 +1096,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "",
 			Schema: map[string]*Schema{
-				"ports": &Schema{
+				"ports": {
 					Type:     TypeList,
 					Optional: true,
 					Computed: true,
@@ -1140,7 +1110,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"ports.#": &terraform.ResourceAttrDiff{
+					"ports.#": {
 						Old:         "",
 						NewComputed: true,
 					},
@@ -1153,7 +1123,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "List with computed set",
 			Schema: map[string]*Schema{
-				"config": &Schema{
+				"config": {
 					Type:     TypeList,
 					Optional: true,
 					ForceNew: true,
@@ -1188,18 +1158,18 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"config.#": &terraform.ResourceAttrDiff{
+					"config.#": {
 						Old:         "0",
 						New:         "1",
 						RequiresNew: true,
 					},
 
-					"config.0.name": &terraform.ResourceAttrDiff{
+					"config.0.name": {
 						Old: "",
 						New: "hello",
 					},
 
-					"config.0.rules.#": &terraform.ResourceAttrDiff{
+					"config.0.rules.#": {
 						Old:         "",
 						NewComputed: true,
 					},
@@ -1212,7 +1182,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Set-1",
 			Schema: map[string]*Schema{
-				"ports": &Schema{
+				"ports": {
 					Type:     TypeSet,
 					Required: true,
 					Elem:     &Schema{Type: TypeInt},
@@ -1230,19 +1200,19 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"ports.#": &terraform.ResourceAttrDiff{
+					"ports.#": {
 						Old: "0",
 						New: "3",
 					},
-					"ports.1": &terraform.ResourceAttrDiff{
+					"ports.1": {
 						Old: "",
 						New: "1",
 					},
-					"ports.2": &terraform.ResourceAttrDiff{
+					"ports.2": {
 						Old: "",
 						New: "2",
 					},
-					"ports.5": &terraform.ResourceAttrDiff{
+					"ports.5": {
 						Old: "",
 						New: "5",
 					},
@@ -1255,7 +1225,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Set-2",
 			Schema: map[string]*Schema{
-				"ports": &Schema{
+				"ports": {
 					Type:     TypeSet,
 					Computed: true,
 					Required: true,
@@ -1283,7 +1253,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Set-3",
 			Schema: map[string]*Schema{
-				"ports": &Schema{
+				"ports": {
 					Type:     TypeSet,
 					Optional: true,
 					Computed: true,
@@ -1300,7 +1270,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"ports.#": &terraform.ResourceAttrDiff{
+					"ports.#": {
 						Old:         "",
 						NewComputed: true,
 					},
@@ -1313,7 +1283,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Set-4",
 			Schema: map[string]*Schema{
-				"ports": &Schema{
+				"ports": {
 					Type:     TypeSet,
 					Required: true,
 					Elem:     &Schema{Type: TypeInt},
@@ -1331,19 +1301,19 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"ports.#": &terraform.ResourceAttrDiff{
+					"ports.#": {
 						Old: "0",
 						New: "3",
 					},
-					"ports.1": &terraform.ResourceAttrDiff{
+					"ports.1": {
 						Old: "",
 						New: "1",
 					},
-					"ports.2": &terraform.ResourceAttrDiff{
+					"ports.2": {
 						Old: "",
 						New: "2",
 					},
-					"ports.5": &terraform.ResourceAttrDiff{
+					"ports.5": {
 						Old: "",
 						New: "5",
 					},
@@ -1356,7 +1326,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Set-5",
 			Schema: map[string]*Schema{
-				"ports": &Schema{
+				"ports": {
 					Type:     TypeSet,
 					Required: true,
 					Elem:     &Schema{Type: TypeInt},
@@ -1374,7 +1344,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"ports.#": &terraform.ResourceAttrDiff{
+					"ports.#": {
 						Old:         "",
 						New:         "",
 						NewComputed: true,
@@ -1388,7 +1358,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Set-6",
 			Schema: map[string]*Schema{
-				"ports": &Schema{
+				"ports": {
 					Type:     TypeSet,
 					Required: true,
 					Elem:     &Schema{Type: TypeInt},
@@ -1413,19 +1383,19 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"ports.#": &terraform.ResourceAttrDiff{
+					"ports.#": {
 						Old: "2",
 						New: "3",
 					},
-					"ports.1": &terraform.ResourceAttrDiff{
+					"ports.1": {
 						Old: "1",
 						New: "1",
 					},
-					"ports.2": &terraform.ResourceAttrDiff{
+					"ports.2": {
 						Old: "2",
 						New: "2",
 					},
-					"ports.5": &terraform.ResourceAttrDiff{
+					"ports.5": {
 						Old: "",
 						New: "5",
 					},
@@ -1438,7 +1408,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Set-8",
 			Schema: map[string]*Schema{
-				"ports": &Schema{
+				"ports": {
 					Type:     TypeSet,
 					Optional: true,
 					Computed: true,
@@ -1468,12 +1438,12 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Set-9",
 			Schema: map[string]*Schema{
-				"ingress": &Schema{
+				"ingress": {
 					Type:     TypeSet,
 					Required: true,
 					Elem: &Resource{
 						Schema: map[string]*Schema{
-							"ports": &Schema{
+							"ports": {
 								Type:     TypeList,
 								Optional: true,
 								Elem:     &Schema{Type: TypeInt},
@@ -1522,12 +1492,12 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "List of structure decode",
 			Schema: map[string]*Schema{
-				"ingress": &Schema{
+				"ingress": {
 					Type:     TypeList,
 					Required: true,
 					Elem: &Resource{
 						Schema: map[string]*Schema{
-							"from": &Schema{
+							"from": {
 								Type:     TypeInt,
 								Required: true,
 							},
@@ -1548,11 +1518,11 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"ingress.#": &terraform.ResourceAttrDiff{
+					"ingress.#": {
 						Old: "0",
 						New: "1",
 					},
-					"ingress.0.from": &terraform.ResourceAttrDiff{
+					"ingress.0.from": {
 						Old: "",
 						New: "8080",
 					},
@@ -1565,13 +1535,13 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "ComputedWhen",
 			Schema: map[string]*Schema{
-				"availability_zone": &Schema{
+				"availability_zone": {
 					Type:         TypeString,
 					Computed:     true,
 					ComputedWhen: []string{"port"},
 				},
 
-				"port": &Schema{
+				"port": {
 					Type:     TypeInt,
 					Optional: true,
 				},
@@ -1597,13 +1567,13 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "computed",
 			Schema: map[string]*Schema{
-				"availability_zone": &Schema{
+				"availability_zone": {
 					Type:         TypeString,
 					Computed:     true,
 					ComputedWhen: []string{"port"},
 				},
 
-				"port": &Schema{
+				"port": {
 					Type:     TypeInt,
 					Optional: true,
 				},
@@ -1617,10 +1587,10 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"availability_zone": &terraform.ResourceAttrDiff{
+					"availability_zone": {
 						NewComputed: true,
 					},
-					"port": &terraform.ResourceAttrDiff{
+					"port": {
 						New: "80",
 					},
 				},
@@ -1632,13 +1602,13 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "computed, exists",
 			Schema: map[string]*Schema{
-				"availability_zone": &Schema{
+				"availability_zone": {
 					Type:         TypeString,
 					Computed:     true,
 					ComputedWhen: []string{"port"},
 				},
 
-				"port": &Schema{
+				"port": {
 					Type:     TypeInt,
 					Optional: true,
 				},
@@ -1664,7 +1634,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Maps-1",
 			Schema: map[string]*Schema{
-				"config_vars": &Schema{
+				"config_vars": {
 					Type: TypeMap,
 				},
 			},
@@ -1679,12 +1649,12 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"config_vars.%": &terraform.ResourceAttrDiff{
+					"config_vars.%": {
 						Old: "0",
 						New: "1",
 					},
 
-					"config_vars.bar": &terraform.ResourceAttrDiff{
+					"config_vars.bar": {
 						Old: "",
 						New: "baz",
 					},
@@ -1697,7 +1667,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Maps-2",
 			Schema: map[string]*Schema{
-				"config_vars": &Schema{
+				"config_vars": {
 					Type: TypeMap,
 				},
 			},
@@ -1718,11 +1688,11 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"config_vars.foo": &terraform.ResourceAttrDiff{
+					"config_vars.foo": {
 						Old:        "bar",
 						NewRemoved: true,
 					},
-					"config_vars.bar": &terraform.ResourceAttrDiff{
+					"config_vars.bar": {
 						Old: "",
 						New: "baz",
 					},
@@ -1735,7 +1705,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Maps-3",
 			Schema: map[string]*Schema{
-				"vars": &Schema{
+				"vars": {
 					Type:     TypeMap,
 					Optional: true,
 					Computed: true,
@@ -1758,12 +1728,12 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"vars.foo": &terraform.ResourceAttrDiff{
+					"vars.foo": {
 						Old:        "bar",
 						New:        "",
 						NewRemoved: true,
 					},
-					"vars.bar": &terraform.ResourceAttrDiff{
+					"vars.bar": {
 						Old: "",
 						New: "baz",
 					},
@@ -1776,7 +1746,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Maps-4",
 			Schema: map[string]*Schema{
-				"vars": &Schema{
+				"vars": {
 					Type:     TypeMap,
 					Computed: true,
 				},
@@ -1800,7 +1770,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Maps-5",
 			Schema: map[string]*Schema{
-				"config_vars": &Schema{
+				"config_vars": {
 					Type: TypeList,
 					Elem: &Schema{Type: TypeMap},
 				},
@@ -1825,11 +1795,11 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"config_vars.0.foo": &terraform.ResourceAttrDiff{
+					"config_vars.0.foo": {
 						Old:        "bar",
 						NewRemoved: true,
 					},
-					"config_vars.0.bar": &terraform.ResourceAttrDiff{
+					"config_vars.0.bar": {
 						Old: "",
 						New: "baz",
 					},
@@ -1842,7 +1812,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Maps-6",
 			Schema: map[string]*Schema{
-				"config_vars": &Schema{
+				"config_vars": {
 					Type:     TypeList,
 					Elem:     &Schema{Type: TypeMap},
 					Optional: true,
@@ -1863,19 +1833,19 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"config_vars.#": &terraform.ResourceAttrDiff{
+					"config_vars.#": {
 						Old: "1",
 						New: "0",
 					},
-					"config_vars.0.%": &terraform.ResourceAttrDiff{
+					"config_vars.0.%": {
 						Old: "2",
 						New: "0",
 					},
-					"config_vars.0.foo": &terraform.ResourceAttrDiff{
+					"config_vars.0.foo": {
 						Old:        "bar",
 						NewRemoved: true,
 					},
-					"config_vars.0.bar": &terraform.ResourceAttrDiff{
+					"config_vars.0.bar": {
 						Old:        "baz",
 						NewRemoved: true,
 					},
@@ -1888,13 +1858,13 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "ForceNews",
 			Schema: map[string]*Schema{
-				"availability_zone": &Schema{
+				"availability_zone": {
 					Type:     TypeString,
 					Optional: true,
 					ForceNew: true,
 				},
 
-				"address": &Schema{
+				"address": {
 					Type:     TypeString,
 					Optional: true,
 					Computed: true,
@@ -1915,7 +1885,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"availability_zone": &terraform.ResourceAttrDiff{
+					"availability_zone": {
 						Old:         "bar",
 						New:         "foo",
 						RequiresNew: true,
@@ -1929,13 +1899,13 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Set-10",
 			Schema: map[string]*Schema{
-				"availability_zone": &Schema{
+				"availability_zone": {
 					Type:     TypeString,
 					Optional: true,
 					ForceNew: true,
 				},
 
-				"ports": &Schema{
+				"ports": {
 					Type:     TypeSet,
 					Optional: true,
 					Computed: true,
@@ -1961,7 +1931,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"availability_zone": &terraform.ResourceAttrDiff{
+					"availability_zone": {
 						Old:         "bar",
 						New:         "foo",
 						RequiresNew: true,
@@ -1975,7 +1945,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Set-11",
 			Schema: map[string]*Schema{
-				"instances": &Schema{
+				"instances": {
 					Type:     TypeSet,
 					Elem:     &Schema{Type: TypeString},
 					Optional: true,
@@ -1999,7 +1969,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"instances.#": &terraform.ResourceAttrDiff{
+					"instances.#": {
 						NewComputed: true,
 					},
 				},
@@ -2011,17 +1981,17 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Set-12",
 			Schema: map[string]*Schema{
-				"route": &Schema{
+				"route": {
 					Type:     TypeSet,
 					Optional: true,
 					Elem: &Resource{
 						Schema: map[string]*Schema{
-							"index": &Schema{
+							"index": {
 								Type:     TypeInt,
 								Required: true,
 							},
 
-							"gateway": &Schema{
+							"gateway": {
 								Type:     TypeString,
 								Optional: true,
 							},
@@ -2047,15 +2017,15 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"route.#": &terraform.ResourceAttrDiff{
+					"route.#": {
 						Old: "0",
 						New: "1",
 					},
-					"route.~1.index": &terraform.ResourceAttrDiff{
+					"route.~1.index": {
 						Old: "",
 						New: "1",
 					},
-					"route.~1.gateway": &terraform.ResourceAttrDiff{
+					"route.~1.gateway": {
 						Old:         "",
 						New:         hcl2shim.UnknownVariableValue,
 						NewComputed: true,
@@ -2069,17 +2039,17 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Set-13",
 			Schema: map[string]*Schema{
-				"route": &Schema{
+				"route": {
 					Type:     TypeSet,
 					Optional: true,
 					Elem: &Resource{
 						Schema: map[string]*Schema{
-							"index": &Schema{
+							"index": {
 								Type:     TypeInt,
 								Required: true,
 							},
 
-							"gateway": &Schema{
+							"gateway": {
 								Type:     TypeSet,
 								Optional: true,
 								Elem:     &Schema{Type: TypeInt},
@@ -2111,15 +2081,15 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"route.#": &terraform.ResourceAttrDiff{
+					"route.#": {
 						Old: "0",
 						New: "1",
 					},
-					"route.~1.index": &terraform.ResourceAttrDiff{
+					"route.~1.index": {
 						Old: "",
 						New: "1",
 					},
-					"route.~1.gateway.#": &terraform.ResourceAttrDiff{
+					"route.~1.gateway.#": {
 						NewComputed: true,
 					},
 				},
@@ -2131,7 +2101,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Computed maps",
 			Schema: map[string]*Schema{
-				"vars": &Schema{
+				"vars": {
 					Type:     TypeMap,
 					Computed: true,
 				},
@@ -2143,7 +2113,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"vars.%": &terraform.ResourceAttrDiff{
+					"vars.%": {
 						Old:         "",
 						NewComputed: true,
 					},
@@ -2156,7 +2126,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Computed maps",
 			Schema: map[string]*Schema{
-				"vars": &Schema{
+				"vars": {
 					Type:     TypeMap,
 					Computed: true,
 				},
@@ -2177,7 +2147,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"vars.%": &terraform.ResourceAttrDiff{
+					"vars.%": {
 						Old:         "",
 						NewComputed: true,
 					},
@@ -2203,7 +2173,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Float",
 			Schema: map[string]*Schema{
-				"some_threshold": &Schema{
+				"some_threshold": {
 					Type: TypeFloat,
 				},
 			},
@@ -2221,7 +2191,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"some_threshold": &terraform.ResourceAttrDiff{
+					"some_threshold": {
 						Old: "567.8",
 						New: "12.34",
 					},
@@ -2234,17 +2204,17 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "https://github.com/hashicorp/terraform-plugin-sdk/issues/824",
 			Schema: map[string]*Schema{
-				"block_device": &Schema{
+				"block_device": {
 					Type:     TypeSet,
 					Optional: true,
 					Computed: true,
 					Elem: &Resource{
 						Schema: map[string]*Schema{
-							"device_name": &Schema{
+							"device_name": {
 								Type:     TypeString,
 								Required: true,
 							},
-							"delete_on_termination": &Schema{
+							"delete_on_termination": {
 								Type:     TypeBool,
 								Optional: true,
 								Default:  true,
@@ -2289,7 +2259,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Zero value in state shouldn't result in diff",
 			Schema: map[string]*Schema{
-				"port": &Schema{
+				"port": {
 					Type:     TypeBool,
 					Optional: true,
 					ForceNew: true,
@@ -2313,17 +2283,17 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Same as prev, but for sets",
 			Schema: map[string]*Schema{
-				"route": &Schema{
+				"route": {
 					Type:     TypeSet,
 					Optional: true,
 					Elem: &Resource{
 						Schema: map[string]*Schema{
-							"index": &Schema{
+							"index": {
 								Type:     TypeInt,
 								Required: true,
 							},
 
-							"gateway": &Schema{
+							"gateway": {
 								Type:     TypeSet,
 								Optional: true,
 								Elem:     &Schema{Type: TypeInt},
@@ -2357,7 +2327,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "A set computed element shouldn't cause a diff",
 			Schema: map[string]*Schema{
-				"active": &Schema{
+				"active": {
 					Type:     TypeBool,
 					Computed: true,
 					ForceNew: true,
@@ -2381,7 +2351,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "An empty set should show up in the diff",
 			Schema: map[string]*Schema{
-				"instances": &Schema{
+				"instances": {
 					Type:     TypeSet,
 					Elem:     &Schema{Type: TypeString},
 					Optional: true,
@@ -2404,12 +2374,12 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"instances.#": &terraform.ResourceAttrDiff{
+					"instances.#": {
 						Old:         "1",
 						New:         "0",
 						RequiresNew: true,
 					},
-					"instances.3": &terraform.ResourceAttrDiff{
+					"instances.3": {
 						Old:         "foo",
 						New:         "",
 						NewRemoved:  true,
@@ -2424,7 +2394,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Map with empty value",
 			Schema: map[string]*Schema{
-				"vars": &Schema{
+				"vars": {
 					Type: TypeMap,
 				},
 			},
@@ -2439,11 +2409,11 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"vars.%": &terraform.ResourceAttrDiff{
+					"vars.%": {
 						Old: "0",
 						New: "1",
 					},
-					"vars.foo": &terraform.ResourceAttrDiff{
+					"vars.foo": {
 						Old: "",
 						New: "",
 					},
@@ -2456,7 +2426,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Unset bool, not in state",
 			Schema: map[string]*Schema{
-				"force": &Schema{
+				"force": {
 					Type:     TypeBool,
 					Optional: true,
 					ForceNew: true,
@@ -2475,7 +2445,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Unset set, not in state",
 			Schema: map[string]*Schema{
-				"metadata_keys": &Schema{
+				"metadata_keys": {
 					Type:     TypeSet,
 					Optional: true,
 					ForceNew: true,
@@ -2496,7 +2466,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Unset list in state, should not show up computed",
 			Schema: map[string]*Schema{
-				"metadata_keys": &Schema{
+				"metadata_keys": {
 					Type:     TypeList,
 					Optional: true,
 					Computed: true,
@@ -2522,7 +2492,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Computed map without config that's known to be empty does not generate diff",
 			Schema: map[string]*Schema{
-				"tags": &Schema{
+				"tags": {
 					Type:     TypeMap,
 					Computed: true,
 				},
@@ -2545,17 +2515,17 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Set with hyphen keys",
 			Schema: map[string]*Schema{
-				"route": &Schema{
+				"route": {
 					Type:     TypeSet,
 					Optional: true,
 					Elem: &Resource{
 						Schema: map[string]*Schema{
-							"index": &Schema{
+							"index": {
 								Type:     TypeInt,
 								Required: true,
 							},
 
-							"gateway-name": &Schema{
+							"gateway-name": {
 								Type:     TypeString,
 								Optional: true,
 							},
@@ -2581,15 +2551,15 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"route.#": &terraform.ResourceAttrDiff{
+					"route.#": {
 						Old: "0",
 						New: "1",
 					},
-					"route.1.index": &terraform.ResourceAttrDiff{
+					"route.1.index": {
 						Old: "",
 						New: "1",
 					},
-					"route.1.gateway-name": &terraform.ResourceAttrDiff{
+					"route.1.gateway-name": {
 						Old: "",
 						New: "hello",
 					},
@@ -2602,13 +2572,13 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "StateFunc in nested set (#1759)",
 			Schema: map[string]*Schema{
-				"service_account": &Schema{
+				"service_account": {
 					Type:     TypeList,
 					Optional: true,
 					ForceNew: true,
 					Elem: &Resource{
 						Schema: map[string]*Schema{
-							"scopes": &Schema{
+							"scopes": {
 								Type:     TypeSet,
 								Required: true,
 								ForceNew: true,
@@ -2643,17 +2613,17 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"service_account.#": &terraform.ResourceAttrDiff{
+					"service_account.#": {
 						Old:         "0",
 						New:         "1",
 						RequiresNew: true,
 					},
-					"service_account.0.scopes.#": &terraform.ResourceAttrDiff{
+					"service_account.0.scopes.#": {
 						Old:         "0",
 						New:         "1",
 						RequiresNew: true,
 					},
-					"service_account.0.scopes.123": &terraform.ResourceAttrDiff{
+					"service_account.0.scopes.123": {
 						Old:         "",
 						New:         "123!",
 						NewExtra:    "123",
@@ -2668,7 +2638,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Removing set elements",
 			Schema: map[string]*Schema{
-				"instances": &Schema{
+				"instances": {
 					Type:     TypeSet,
 					Elem:     &Schema{Type: TypeString},
 					Optional: true,
@@ -2694,17 +2664,17 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"instances.2": &terraform.ResourceAttrDiff{
+					"instances.2": {
 						Old:         "22",
 						New:         "",
 						NewRemoved:  true,
 						RequiresNew: true,
 					},
-					"instances.3": &terraform.ResourceAttrDiff{
+					"instances.3": {
 						Old: "333",
 						New: "333",
 					},
-					"instances.4": &terraform.ResourceAttrDiff{
+					"instances.4": {
 						Old:         "",
 						New:         "4444",
 						RequiresNew: true,
@@ -2718,15 +2688,15 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Bools can be set with 0/1 in config, still get true/false",
 			Schema: map[string]*Schema{
-				"one": &Schema{
+				"one": {
 					Type:     TypeBool,
 					Optional: true,
 				},
-				"two": &Schema{
+				"two": {
 					Type:     TypeBool,
 					Optional: true,
 				},
-				"three": &Schema{
+				"three": {
 					Type:     TypeBool,
 					Optional: true,
 				},
@@ -2748,15 +2718,15 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"one": &terraform.ResourceAttrDiff{
+					"one": {
 						Old: "false",
 						New: "true",
 					},
-					"two": &terraform.ResourceAttrDiff{
+					"two": {
 						Old: "true",
 						New: "false",
 					},
-					"three": &terraform.ResourceAttrDiff{
+					"three": {
 						Old:        "true",
 						New:        "false",
 						NewRemoved: true,
@@ -2790,7 +2760,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Set ForceNew only marks the changing element as ForceNew",
 			Schema: map[string]*Schema{
-				"ports": &Schema{
+				"ports": {
 					Type:     TypeSet,
 					Required: true,
 					ForceNew: true,
@@ -2817,20 +2787,20 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"ports.1": &terraform.ResourceAttrDiff{
+					"ports.1": {
 						Old: "1",
 						New: "1",
 					},
-					"ports.2": &terraform.ResourceAttrDiff{
+					"ports.2": {
 						Old: "2",
 						New: "2",
 					},
-					"ports.5": &terraform.ResourceAttrDiff{
+					"ports.5": {
 						Old:         "",
 						New:         "5",
 						RequiresNew: true,
 					},
-					"ports.4": &terraform.ResourceAttrDiff{
+					"ports.4": {
 						Old:         "4",
 						New:         "0",
 						NewRemoved:  true,
@@ -2843,7 +2813,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "removed optional items should trigger ForceNew",
 			Schema: map[string]*Schema{
-				"description": &Schema{
+				"description": {
 					Type:     TypeString,
 					ForceNew: true,
 					Optional: true,
@@ -2861,7 +2831,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"description": &terraform.ResourceAttrDiff{
+					"description": {
 						Old:         "foo",
 						New:         "",
 						RequiresNew: true,
@@ -2877,7 +2847,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "computed value for boolean field",
 			Schema: map[string]*Schema{
-				"foo": &Schema{
+				"foo": {
 					Type:     TypeBool,
 					ForceNew: true,
 					Computed: true,
@@ -2895,7 +2865,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"foo": &terraform.ResourceAttrDiff{
+					"foo": {
 						Old:         "",
 						New:         "false",
 						NewComputed: true,
@@ -2910,7 +2880,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Set ForceNew marks count as ForceNew if computed",
 			Schema: map[string]*Schema{
-				"ports": &Schema{
+				"ports": {
 					Type:     TypeSet,
 					Required: true,
 					ForceNew: true,
@@ -2937,7 +2907,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"ports.#": &terraform.ResourceAttrDiff{
+					"ports.#": {
 						NewComputed: true,
 						RequiresNew: true,
 					},
@@ -2948,7 +2918,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "List with computed schema and ForceNew",
 			Schema: map[string]*Schema{
-				"config": &Schema{
+				"config": {
 					Type:     TypeList,
 					Optional: true,
 					ForceNew: true,
@@ -2973,7 +2943,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"config.#": &terraform.ResourceAttrDiff{
+					"config.#": {
 						Old:         "2",
 						New:         "",
 						RequiresNew: true,
@@ -2988,7 +2958,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "overridden diff with a CustomizeDiff function, ForceNew not in schema",
 			Schema: map[string]*Schema{
-				"availability_zone": &Schema{
+				"availability_zone": {
 					Type:     TypeString,
 					Optional: true,
 					Computed: true,
@@ -3001,7 +2971,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 				"availability_zone": "foo",
 			},
 
-			CustomizeDiff: func(d *ResourceDiff, meta interface{}) error {
+			CustomizeDiff: func(_ context.Context, d *ResourceDiff, meta interface{}) error {
 				if err := d.SetNew("availability_zone", "bar"); err != nil {
 					return err
 				}
@@ -3013,7 +2983,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"availability_zone": &terraform.ResourceAttrDiff{
+					"availability_zone": {
 						Old:         "",
 						New:         "bar",
 						RequiresNew: true,
@@ -3031,7 +3001,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 			// intended diff still shows up.
 			Name: "overridden removed attribute diff with a CustomizeDiff function, ForceNew not in schema",
 			Schema: map[string]*Schema{
-				"availability_zone": &Schema{
+				"availability_zone": {
 					Type:     TypeString,
 					Optional: true,
 					Computed: true,
@@ -3042,7 +3012,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Config: map[string]interface{}{},
 
-			CustomizeDiff: func(d *ResourceDiff, meta interface{}) error {
+			CustomizeDiff: func(_ context.Context, d *ResourceDiff, meta interface{}) error {
 				if err := d.SetNew("availability_zone", "bar"); err != nil {
 					return err
 				}
@@ -3054,7 +3024,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"availability_zone": &terraform.ResourceAttrDiff{
+					"availability_zone": {
 						Old:         "",
 						New:         "bar",
 						RequiresNew: true,
@@ -3069,7 +3039,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Name: "overridden diff with a CustomizeDiff function, ForceNew in schema",
 			Schema: map[string]*Schema{
-				"availability_zone": &Schema{
+				"availability_zone": {
 					Type:     TypeString,
 					Optional: true,
 					Computed: true,
@@ -3083,7 +3053,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 				"availability_zone": "foo",
 			},
 
-			CustomizeDiff: func(d *ResourceDiff, meta interface{}) error {
+			CustomizeDiff: func(_ context.Context, d *ResourceDiff, meta interface{}) error {
 				if err := d.SetNew("availability_zone", "bar"); err != nil {
 					return err
 				}
@@ -3092,7 +3062,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"availability_zone": &terraform.ResourceAttrDiff{
+					"availability_zone": {
 						Old:         "",
 						New:         "bar",
 						RequiresNew: true,
@@ -3106,11 +3076,11 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "required field with computed diff added with CustomizeDiff function",
 			Schema: map[string]*Schema{
-				"ami_id": &Schema{
+				"ami_id": {
 					Type:     TypeString,
 					Required: true,
 				},
-				"instance_id": &Schema{
+				"instance_id": {
 					Type:     TypeString,
 					Computed: true,
 				},
@@ -3122,7 +3092,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 				"ami_id": "foo",
 			},
 
-			CustomizeDiff: func(d *ResourceDiff, meta interface{}) error {
+			CustomizeDiff: func(_ context.Context, d *ResourceDiff, meta interface{}) error {
 				if err := d.SetNew("instance_id", "bar"); err != nil {
 					return err
 				}
@@ -3131,11 +3101,11 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"ami_id": &terraform.ResourceAttrDiff{
+					"ami_id": {
 						Old: "",
 						New: "foo",
 					},
-					"instance_id": &terraform.ResourceAttrDiff{
+					"instance_id": {
 						Old: "",
 						New: "bar",
 					},
@@ -3148,7 +3118,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "Set ForceNew only marks the changing element as ForceNew - CustomizeDiffFunc edition",
 			Schema: map[string]*Schema{
-				"ports": &Schema{
+				"ports": {
 					Type:     TypeSet,
 					Optional: true,
 					Computed: true,
@@ -3173,7 +3143,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 				"ports": []interface{}{5, 2, 6},
 			},
 
-			CustomizeDiff: func(d *ResourceDiff, meta interface{}) error {
+			CustomizeDiff: func(_ context.Context, d *ResourceDiff, meta interface{}) error {
 				if err := d.SetNew("ports", []interface{}{5, 2, 1}); err != nil {
 					return err
 				}
@@ -3185,20 +3155,20 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"ports.1": &terraform.ResourceAttrDiff{
+					"ports.1": {
 						Old: "1",
 						New: "1",
 					},
-					"ports.2": &terraform.ResourceAttrDiff{
+					"ports.2": {
 						Old: "2",
 						New: "2",
 					},
-					"ports.5": &terraform.ResourceAttrDiff{
+					"ports.5": {
 						Old:         "",
 						New:         "5",
 						RequiresNew: true,
 					},
-					"ports.4": &terraform.ResourceAttrDiff{
+					"ports.4": {
 						Old:         "4",
 						New:         "0",
 						NewRemoved:  true,
@@ -3222,7 +3192,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Config: map[string]interface{}{},
 
-			CustomizeDiff: func(d *ResourceDiff, meta interface{}) error {
+			CustomizeDiff: func(_ context.Context, d *ResourceDiff, meta interface{}) error {
 				return errors.New("diff customization should not have run")
 			},
 
@@ -3237,12 +3207,12 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "NewComputed based on a conditional with CustomizeDiffFunc",
 			Schema: map[string]*Schema{
-				"etag": &Schema{
+				"etag": {
 					Type:     TypeString,
 					Optional: true,
 					Computed: true,
 				},
-				"version_id": &Schema{
+				"version_id": {
 					Type:     TypeString,
 					Computed: true,
 				},
@@ -3260,7 +3230,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 				"etag": "bar",
 			},
 
-			CustomizeDiff: func(d *ResourceDiff, meta interface{}) error {
+			CustomizeDiff: func(_ context.Context, d *ResourceDiff, meta interface{}) error {
 				if d.HasChange("etag") {
 					d.SetNewComputed("version_id")
 				}
@@ -3269,11 +3239,11 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			Diff: &terraform.InstanceDiff{
 				Attributes: map[string]*terraform.ResourceAttrDiff{
-					"etag": &terraform.ResourceAttrDiff{
+					"etag": {
 						Old: "foo",
 						New: "bar",
 					},
-					"version_id": &terraform.ResourceAttrDiff{
+					"version_id": {
 						Old:         "1",
 						New:         "",
 						NewComputed: true,
@@ -3287,7 +3257,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "vetoing a diff",
 			Schema: map[string]*Schema{
-				"foo": &Schema{
+				"foo": {
 					Type:     TypeString,
 					Optional: true,
 					Computed: true,
@@ -3305,7 +3275,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 				"foo": "baz",
 			},
 
-			CustomizeDiff: func(d *ResourceDiff, meta interface{}) error {
+			CustomizeDiff: func(_ context.Context, d *ResourceDiff, meta interface{}) error {
 				return fmt.Errorf("diff vetoed")
 			},
 
@@ -3317,7 +3287,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 		{
 			Name: "optional, computed, empty string",
 			Schema: map[string]*Schema{
-				"attr": &Schema{
+				"attr": {
 					Type:     TypeString,
 					Optional: true,
 					Computed: true,
@@ -3367,7 +3337,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 				"stream_enabled":   false,
 				"stream_view_type": "",
 			},
-			CustomizeDiff: func(diff *ResourceDiff, v interface{}) error {
+			CustomizeDiff: func(_ context.Context, diff *ResourceDiff, v interface{}) error {
 				v, ok := diff.GetOk("unrelated_set")
 				if ok {
 					return fmt.Errorf("Didn't expect unrelated_set: %#v", v)
@@ -3390,7 +3360,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 			c := terraform.NewResourceConfigRaw(tc.Config)
 
 			{
-				d, err := schemaMap(tc.Schema).Diff(tc.State, c, tc.CustomizeDiff, nil, false)
+				d, err := schemaMap(tc.Schema).Diff(context.Background(), tc.State, c, tc.CustomizeDiff, nil, false)
 				if err != nil != tc.Err {
 					t.Fatalf("err: %s", err)
 				}
@@ -3438,7 +3408,7 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 
 			res := &Resource{Schema: tc.Schema}
 
-			d, err := diffFromValues(stateVal, configVal, res, tc.CustomizeDiff)
+			d, err := diffFromValues(context.Background(), stateVal, configVal, res, tc.CustomizeDiff)
 			if err != nil {
 				if !tc.Err {
 					t.Fatal(err)

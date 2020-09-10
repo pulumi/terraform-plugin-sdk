@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -91,5 +92,68 @@ func TestRetry_error(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timeout")
+	}
+}
+
+func TestRetry_nilNonRetryableError(t *testing.T) {
+	t.Parallel()
+
+	f := func() *RetryError {
+		return NonRetryableError(nil)
+	}
+
+	err := Retry(1*time.Second, f)
+	if err == nil {
+		t.Fatal("should error")
+	}
+}
+
+func TestRetry_nilRetryableError(t *testing.T) {
+	t.Parallel()
+
+	f := func() *RetryError {
+		return RetryableError(nil)
+	}
+
+	err := Retry(1*time.Second, f)
+	if err == nil {
+		t.Fatal("should error")
+	}
+}
+
+func TestRetryContext_cancel(t *testing.T) {
+	t.Parallel()
+
+	waitForever := make(chan struct{})
+	defer close(waitForever)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	f := func() *RetryError {
+		<-waitForever
+		return nil
+	}
+
+	cancel()
+
+	if err := RetryContext(ctx, 10*time.Millisecond, f); err != context.Canceled {
+		t.Fatalf("Expected context.Canceled error, got: %s", err)
+	}
+}
+
+func TestRetryContext_deadline(t *testing.T) {
+	t.Parallel()
+
+	waitForever := make(chan struct{})
+	defer close(waitForever)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	f := func() *RetryError {
+		<-waitForever
+		return nil
+	}
+
+	if err := RetryContext(ctx, 10*time.Second, f); err != context.DeadlineExceeded {
+		t.Fatalf("Expected context.DeadlineExceeded error, got: %s", err)
 	}
 }

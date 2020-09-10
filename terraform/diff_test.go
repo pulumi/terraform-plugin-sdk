@@ -2,400 +2,76 @@ package terraform
 
 import (
 	"fmt"
-	"reflect"
 	"strconv"
-	"strings"
 	"testing"
-
-	"github.com/hashicorp/terraform-plugin-sdk/internal/addrs"
 )
-
-func TestDiffEmpty(t *testing.T) {
-	var diff *Diff
-	if !diff.Empty() {
-		t.Fatal("should be empty")
-	}
-
-	diff = new(Diff)
-	if !diff.Empty() {
-		t.Fatal("should be empty")
-	}
-
-	mod := diff.AddModule(addrs.RootModuleInstance)
-	mod.Resources["nodeA"] = &InstanceDiff{
-		Attributes: map[string]*ResourceAttrDiff{
-			"foo": &ResourceAttrDiff{
-				Old: "foo",
-				New: "bar",
-			},
-		},
-	}
-
-	if diff.Empty() {
-		t.Fatal("should not be empty")
-	}
-}
-
-func TestDiffEmpty_taintedIsNotEmpty(t *testing.T) {
-	diff := new(Diff)
-
-	mod := diff.AddModule(addrs.RootModuleInstance)
-	mod.Resources["nodeA"] = &InstanceDiff{
-		DestroyTainted: true,
-	}
-
-	if diff.Empty() {
-		t.Fatal("should not be empty, since DestroyTainted was set")
-	}
-}
-
-func TestDiffEqual(t *testing.T) {
-	cases := map[string]struct {
-		D1, D2 *Diff
-		Equal  bool
-	}{
-		"nil": {
-			nil,
-			new(Diff),
-			false,
-		},
-
-		"empty": {
-			new(Diff),
-			new(Diff),
-			true,
-		},
-
-		"different module order": {
-			&Diff{
-				Modules: []*ModuleDiff{
-					&ModuleDiff{Path: []string{"root", "foo"}},
-					&ModuleDiff{Path: []string{"root", "bar"}},
-				},
-			},
-			&Diff{
-				Modules: []*ModuleDiff{
-					&ModuleDiff{Path: []string{"root", "bar"}},
-					&ModuleDiff{Path: []string{"root", "foo"}},
-				},
-			},
-			true,
-		},
-
-		"different module diff destroys": {
-			&Diff{
-				Modules: []*ModuleDiff{
-					&ModuleDiff{Path: []string{"root", "foo"}, Destroy: true},
-				},
-			},
-			&Diff{
-				Modules: []*ModuleDiff{
-					&ModuleDiff{Path: []string{"root", "foo"}, Destroy: false},
-				},
-			},
-			true,
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			actual := tc.D1.Equal(tc.D2)
-			if actual != tc.Equal {
-				t.Fatalf("expected: %v\n\n%#v\n\n%#v", tc.Equal, tc.D1, tc.D2)
-			}
-		})
-	}
-}
-
-func TestDiffPrune(t *testing.T) {
-	cases := map[string]struct {
-		D1, D2 *Diff
-	}{
-		"nil": {
-			nil,
-			nil,
-		},
-
-		"empty": {
-			new(Diff),
-			new(Diff),
-		},
-
-		"empty module": {
-			&Diff{
-				Modules: []*ModuleDiff{
-					&ModuleDiff{Path: []string{"root", "foo"}},
-				},
-			},
-			&Diff{},
-		},
-
-		"destroy module": {
-			&Diff{
-				Modules: []*ModuleDiff{
-					&ModuleDiff{Path: []string{"root", "foo"}, Destroy: true},
-				},
-			},
-			&Diff{
-				Modules: []*ModuleDiff{
-					&ModuleDiff{Path: []string{"root", "foo"}, Destroy: true},
-				},
-			},
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			tc.D1.Prune()
-			if !tc.D1.Equal(tc.D2) {
-				t.Fatalf("bad:\n\n%#v\n\n%#v", tc.D1, tc.D2)
-			}
-		})
-	}
-}
-
-func TestModuleDiff_ChangeType(t *testing.T) {
-	cases := []struct {
-		Diff   *ModuleDiff
-		Result DiffChangeType
-	}{
-		{
-			&ModuleDiff{},
-			DiffNone,
-		},
-		{
-			&ModuleDiff{
-				Resources: map[string]*InstanceDiff{
-					"foo": &InstanceDiff{Destroy: true},
-				},
-			},
-			DiffDestroy,
-		},
-		{
-			&ModuleDiff{
-				Resources: map[string]*InstanceDiff{
-					"foo": &InstanceDiff{
-						Attributes: map[string]*ResourceAttrDiff{
-							"foo": &ResourceAttrDiff{
-								Old: "",
-								New: "bar",
-							},
-						},
-					},
-				},
-			},
-			DiffUpdate,
-		},
-		{
-			&ModuleDiff{
-				Resources: map[string]*InstanceDiff{
-					"foo": &InstanceDiff{
-						Attributes: map[string]*ResourceAttrDiff{
-							"foo": &ResourceAttrDiff{
-								Old:         "",
-								New:         "bar",
-								RequiresNew: true,
-							},
-						},
-					},
-				},
-			},
-			DiffCreate,
-		},
-		{
-			&ModuleDiff{
-				Resources: map[string]*InstanceDiff{
-					"foo": &InstanceDiff{
-						Destroy: true,
-						Attributes: map[string]*ResourceAttrDiff{
-							"foo": &ResourceAttrDiff{
-								Old:         "",
-								New:         "bar",
-								RequiresNew: true,
-							},
-						},
-					},
-				},
-			},
-			DiffUpdate,
-		},
-	}
-
-	for i, tc := range cases {
-		actual := tc.Diff.ChangeType()
-		if actual != tc.Result {
-			t.Fatalf("%d: %#v", i, actual)
-		}
-	}
-}
-
-func TestDiff_DeepCopy(t *testing.T) {
-	cases := map[string]*Diff{
-		"empty": &Diff{},
-
-		"basic diff": &Diff{
-			Modules: []*ModuleDiff{
-				&ModuleDiff{
-					Path: []string{"root"},
-					Resources: map[string]*InstanceDiff{
-						"aws_instance.foo": &InstanceDiff{
-							Attributes: map[string]*ResourceAttrDiff{
-								"num": &ResourceAttrDiff{
-									Old: "0",
-									New: "2",
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			dup := tc.DeepCopy()
-			if !reflect.DeepEqual(dup, tc) {
-				t.Fatalf("\n%#v\n\n%#v", dup, tc)
-			}
-		})
-	}
-}
-
-func TestModuleDiff_Empty(t *testing.T) {
-	diff := new(ModuleDiff)
-	if !diff.Empty() {
-		t.Fatal("should be empty")
-	}
-
-	diff.Resources = map[string]*InstanceDiff{
-		"nodeA": &InstanceDiff{},
-	}
-
-	if !diff.Empty() {
-		t.Fatal("should be empty")
-	}
-
-	diff.Resources["nodeA"].Attributes = map[string]*ResourceAttrDiff{
-		"foo": &ResourceAttrDiff{
-			Old: "foo",
-			New: "bar",
-		},
-	}
-
-	if diff.Empty() {
-		t.Fatal("should not be empty")
-	}
-
-	diff.Resources["nodeA"].Attributes = nil
-	diff.Resources["nodeA"].Destroy = true
-
-	if diff.Empty() {
-		t.Fatal("should not be empty")
-	}
-}
-
-func TestModuleDiff_String(t *testing.T) {
-	diff := &ModuleDiff{
-		Resources: map[string]*InstanceDiff{
-			"nodeA": &InstanceDiff{
-				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{
-						Old: "foo",
-						New: "bar",
-					},
-					"bar": &ResourceAttrDiff{
-						Old:         "foo",
-						NewComputed: true,
-					},
-					"longfoo": &ResourceAttrDiff{
-						Old:         "foo",
-						New:         "bar",
-						RequiresNew: true,
-					},
-					"secretfoo": &ResourceAttrDiff{
-						Old:       "foo",
-						New:       "bar",
-						Sensitive: true,
-					},
-				},
-			},
-		},
-	}
-
-	actual := strings.TrimSpace(diff.String())
-	expected := strings.TrimSpace(moduleDiffStrBasic)
-	if actual != expected {
-		t.Fatalf("bad:\n%s", actual)
-	}
-}
 
 func TestInstanceDiff_ChangeType(t *testing.T) {
 	cases := []struct {
-		Diff   *InstanceDiff
-		Result DiffChangeType
+		diff   *InstanceDiff
+		Result diffChangeType
 	}{
 		{
 			&InstanceDiff{},
-			DiffNone,
+			diffNone,
 		},
 		{
 			&InstanceDiff{Destroy: true},
-			DiffDestroy,
+			diffDestroy,
 		},
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{
+					"foo": {
 						Old: "",
 						New: "bar",
 					},
 				},
 			},
-			DiffUpdate,
+			diffUpdate,
 		},
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{
+					"foo": {
 						Old:         "",
 						New:         "bar",
 						RequiresNew: true,
 					},
 				},
 			},
-			DiffCreate,
+			diffCreate,
 		},
 		{
 			&InstanceDiff{
 				Destroy: true,
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{
+					"foo": {
 						Old:         "",
 						New:         "bar",
 						RequiresNew: true,
 					},
 				},
 			},
-			DiffDestroyCreate,
+			diffDestroyCreate,
 		},
 		{
 			&InstanceDiff{
 				DestroyTainted: true,
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{
+					"foo": {
 						Old:         "",
 						New:         "bar",
 						RequiresNew: true,
 					},
 				},
 			},
-			DiffDestroyCreate,
+			diffDestroyCreate,
 		},
 	}
 
 	for i, tc := range cases {
-		actual := tc.Diff.ChangeType()
+		actual := tc.diff.ChangeType()
 		if actual != tc.Result {
 			t.Fatalf("%d: %#v", i, actual)
 		}
@@ -423,7 +99,7 @@ func TestInstanceDiff_Empty(t *testing.T) {
 
 	rd = &InstanceDiff{
 		Attributes: map[string]*ResourceAttrDiff{
-			"foo": &ResourceAttrDiff{
+			"foo": {
 				New: "bar",
 			},
 		},
@@ -434,72 +110,10 @@ func TestInstanceDiff_Empty(t *testing.T) {
 	}
 }
 
-func TestModuleDiff_Instances(t *testing.T) {
-	yesDiff := &InstanceDiff{Destroy: true}
-	noDiff := &InstanceDiff{Destroy: true, DestroyTainted: true}
-
-	cases := []struct {
-		Diff   *ModuleDiff
-		Id     string
-		Result []*InstanceDiff
-	}{
-		{
-			&ModuleDiff{
-				Resources: map[string]*InstanceDiff{
-					"foo": yesDiff,
-					"bar": noDiff,
-				},
-			},
-			"foo",
-			[]*InstanceDiff{
-				yesDiff,
-			},
-		},
-
-		{
-			&ModuleDiff{
-				Resources: map[string]*InstanceDiff{
-					"foo":   yesDiff,
-					"foo.0": yesDiff,
-					"bar":   noDiff,
-				},
-			},
-			"foo",
-			[]*InstanceDiff{
-				yesDiff,
-				yesDiff,
-			},
-		},
-
-		{
-			&ModuleDiff{
-				Resources: map[string]*InstanceDiff{
-					"foo":     yesDiff,
-					"foo.0":   yesDiff,
-					"foo_bar": noDiff,
-					"bar":     noDiff,
-				},
-			},
-			"foo",
-			[]*InstanceDiff{
-				yesDiff,
-				yesDiff,
-			},
-		},
-	}
-
-	for i, tc := range cases {
-		actual := tc.Diff.Instances(tc.Id)
-		if !reflect.DeepEqual(actual, tc.Result) {
-			t.Fatalf("%d: %#v", i, actual)
-		}
-	}
-}
-
 func TestInstanceDiff_RequiresNew(t *testing.T) {
 	rd := &InstanceDiff{
 		Attributes: map[string]*ResourceAttrDiff{
-			"foo": &ResourceAttrDiff{},
+			"foo": {},
 		},
 	}
 
@@ -559,12 +173,12 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{},
+					"foo": {},
 				},
 			},
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{},
+					"foo": {},
 				},
 			},
 			true,
@@ -574,12 +188,12 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"bar": &ResourceAttrDiff{},
+					"bar": {},
 				},
 			},
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{},
+					"foo": {},
 				},
 			},
 			false,
@@ -590,13 +204,13 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{},
+					"foo": {},
 				},
 			},
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{},
-					"bar": &ResourceAttrDiff{},
+					"foo": {},
+					"bar": {},
 				},
 			},
 			false,
@@ -606,12 +220,12 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{RequiresNew: true},
+					"foo": {RequiresNew: true},
 				},
 			},
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{RequiresNew: false},
+					"foo": {RequiresNew: false},
 				},
 			},
 			false,
@@ -622,7 +236,7 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{
+					"foo": {
 						Old:         "",
 						New:         "${var.foo}",
 						NewComputed: true,
@@ -631,7 +245,7 @@ func TestInstanceDiffSame(t *testing.T) {
 			},
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{
+					"foo": {
 						Old: "0",
 						New: "1",
 					},
@@ -645,7 +259,7 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{
+					"foo": {
 						Old:         "",
 						New:         "${var.foo}",
 						NewComputed: true,
@@ -663,7 +277,7 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.#": &ResourceAttrDiff{
+					"foo.#": {
 						Old:         "",
 						New:         "",
 						NewComputed: true,
@@ -672,12 +286,12 @@ func TestInstanceDiffSame(t *testing.T) {
 			},
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.1": &ResourceAttrDiff{
+					"foo.1": {
 						Old:        "foo",
 						New:        "",
 						NewRemoved: true,
 					},
-					"foo.2": &ResourceAttrDiff{
+					"foo.2": {
 						Old: "",
 						New: "bar",
 					},
@@ -690,16 +304,16 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.#": &ResourceAttrDiff{NewComputed: true},
+					"foo.#": {NewComputed: true},
 				},
 			},
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.#": &ResourceAttrDiff{
+					"foo.#": {
 						Old: "0",
 						New: "1",
 					},
-					"foo.0": &ResourceAttrDiff{
+					"foo.0": {
 						Old: "",
 						New: "12",
 					},
@@ -712,11 +326,11 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.#": &ResourceAttrDiff{
+					"foo.#": {
 						Old: "0",
 						New: "1",
 					},
-					"foo.~35964334.bar": &ResourceAttrDiff{
+					"foo.~35964334.bar": {
 						Old: "",
 						New: "${var.foo}",
 					},
@@ -724,11 +338,11 @@ func TestInstanceDiffSame(t *testing.T) {
 			},
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.#": &ResourceAttrDiff{
+					"foo.#": {
 						Old: "0",
 						New: "1",
 					},
-					"foo.87654323.bar": &ResourceAttrDiff{
+					"foo.87654323.bar": {
 						Old: "",
 						New: "12",
 					},
@@ -741,7 +355,7 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.#": &ResourceAttrDiff{
+					"foo.#": {
 						Old:         "0",
 						NewComputed: true,
 					},
@@ -758,7 +372,7 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.#": &ResourceAttrDiff{
+					"foo.#": {
 						Old:         "0",
 						NewComputed: true,
 						RequiresNew: true,
@@ -776,7 +390,7 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.#": &ResourceAttrDiff{
+					"foo.#": {
 						Old:         "0",
 						NewComputed: true,
 						RequiresNew: true,
@@ -796,7 +410,7 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.#": &ResourceAttrDiff{
+					"foo.#": {
 						Old:         "0",
 						NewComputed: true,
 						RequiresNew: true,
@@ -807,11 +421,11 @@ func TestInstanceDiffSame(t *testing.T) {
 			},
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.#": &ResourceAttrDiff{
+					"foo.#": {
 						Old: "1",
 						New: "1",
 					},
-					"foo.12": &ResourceAttrDiff{
+					"foo.12": {
 						Old:         "4",
 						New:         "12",
 						RequiresNew: true,
@@ -831,11 +445,11 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.#": &ResourceAttrDiff{
+					"foo.#": {
 						Old: "0",
 						New: "1",
 					},
-					"foo.~35964334.bar": &ResourceAttrDiff{
+					"foo.~35964334.bar": {
 						Old: "",
 						New: "${var.foo}",
 					},
@@ -843,19 +457,19 @@ func TestInstanceDiffSame(t *testing.T) {
 			},
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.#": &ResourceAttrDiff{
+					"foo.#": {
 						Old: "0",
 						New: "2",
 					},
-					"foo.87654323.bar": &ResourceAttrDiff{
+					"foo.87654323.bar": {
 						Old: "",
 						New: "12",
 					},
-					"foo.87654325.bar": &ResourceAttrDiff{
+					"foo.87654325.bar": {
 						Old: "",
 						New: "12",
 					},
-					"foo.87654325.baz": &ResourceAttrDiff{
+					"foo.87654325.baz": {
 						Old: "",
 						New: "12",
 					},
@@ -869,7 +483,7 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.%": &ResourceAttrDiff{
+					"foo.%": {
 						Old:         "",
 						New:         "",
 						NewComputed: true,
@@ -878,12 +492,12 @@ func TestInstanceDiffSame(t *testing.T) {
 			},
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.%": &ResourceAttrDiff{
+					"foo.%": {
 						Old:         "0",
 						New:         "1",
 						NewComputed: false,
 					},
-					"foo.val": &ResourceAttrDiff{
+					"foo.val": {
 						Old: "",
 						New: "something",
 					},
@@ -904,12 +518,12 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"somemap.oldkey": &ResourceAttrDiff{
+					"somemap.oldkey": {
 						Old:        "long ago",
 						New:        "",
 						NewRemoved: true,
 					},
-					"somemap.newkey": &ResourceAttrDiff{
+					"somemap.newkey": {
 						Old: "",
 						New: "brave new world",
 					},
@@ -917,7 +531,7 @@ func TestInstanceDiffSame(t *testing.T) {
 			},
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"somemap.newkey": &ResourceAttrDiff{
+					"somemap.newkey": {
 						Old: "",
 						New: "brave new world",
 					},
@@ -935,16 +549,16 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"reqnew": &ResourceAttrDiff{
+					"reqnew": {
 						Old:         "old",
 						New:         "new",
 						RequiresNew: true,
 					},
-					"somemap.#": &ResourceAttrDiff{
+					"somemap.#": {
 						Old: "1",
 						New: "0",
 					},
-					"somemap.oldkey": &ResourceAttrDiff{
+					"somemap.oldkey": {
 						Old:        "long ago",
 						New:        "",
 						NewRemoved: true,
@@ -953,7 +567,7 @@ func TestInstanceDiffSame(t *testing.T) {
 			},
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"reqnew": &ResourceAttrDiff{
+					"reqnew": {
 						Old:         "",
 						New:         "new",
 						RequiresNew: true,
@@ -967,16 +581,16 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"reqnew": &ResourceAttrDiff{
+					"reqnew": {
 						Old:         "old",
 						New:         "new",
 						RequiresNew: true,
 					},
-					"somemap.%": &ResourceAttrDiff{
+					"somemap.%": {
 						Old: "1",
 						New: "0",
 					},
-					"somemap.oldkey": &ResourceAttrDiff{
+					"somemap.oldkey": {
 						Old:        "long ago",
 						New:        "",
 						NewRemoved: true,
@@ -985,7 +599,7 @@ func TestInstanceDiffSame(t *testing.T) {
 			},
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"reqnew": &ResourceAttrDiff{
+					"reqnew": {
 						Old:         "",
 						New:         "new",
 						RequiresNew: true,
@@ -1000,19 +614,19 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.#": &ResourceAttrDiff{
+					"foo.#": {
 						Old: "0",
 						New: "1",
 					},
-					"foo.~1.outer_val": &ResourceAttrDiff{
+					"foo.~1.outer_val": {
 						Old: "",
 						New: "foo",
 					},
-					"foo.~1.inner.#": &ResourceAttrDiff{
+					"foo.~1.inner.#": {
 						Old: "0",
 						New: "1",
 					},
-					"foo.~1.inner.~2.value": &ResourceAttrDiff{
+					"foo.~1.inner.~2.value": {
 						Old:         "",
 						New:         "${var.bar}",
 						NewComputed: true,
@@ -1021,19 +635,19 @@ func TestInstanceDiffSame(t *testing.T) {
 			},
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.#": &ResourceAttrDiff{
+					"foo.#": {
 						Old: "0",
 						New: "1",
 					},
-					"foo.12.outer_val": &ResourceAttrDiff{
+					"foo.12.outer_val": {
 						Old: "",
 						New: "foo",
 					},
-					"foo.12.inner.#": &ResourceAttrDiff{
+					"foo.12.inner.#": {
 						Old: "0",
 						New: "1",
 					},
-					"foo.12.inner.42.value": &ResourceAttrDiff{
+					"foo.12.inner.42.value": {
 						Old: "",
 						New: "baz",
 					},
@@ -1047,19 +661,19 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.#": &ResourceAttrDiff{
+					"foo.#": {
 						Old: "0",
 						New: "1",
 					},
-					"foo.~1.outer_val": &ResourceAttrDiff{
+					"foo.~1.outer_val": {
 						Old: "",
 						New: "foo",
 					},
-					"foo.~1.inner.#": &ResourceAttrDiff{
+					"foo.~1.inner.#": {
 						Old: "0",
 						New: "1",
 					},
-					"foo.~1.inner.0.value": &ResourceAttrDiff{
+					"foo.~1.inner.0.value": {
 						Old:         "",
 						New:         "${var.bar}",
 						NewComputed: true,
@@ -1068,19 +682,19 @@ func TestInstanceDiffSame(t *testing.T) {
 			},
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.#": &ResourceAttrDiff{
+					"foo.#": {
 						Old: "0",
 						New: "1",
 					},
-					"foo.12.outer_val": &ResourceAttrDiff{
+					"foo.12.outer_val": {
 						Old: "",
 						New: "foo",
 					},
-					"foo.12.inner.#": &ResourceAttrDiff{
+					"foo.12.inner.#": {
 						Old: "0",
 						New: "1",
 					},
-					"foo.12.inner.0.value": &ResourceAttrDiff{
+					"foo.12.inner.0.value": {
 						Old: "",
 						New: "baz",
 					},
@@ -1096,12 +710,12 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.%": &ResourceAttrDiff{
+					"foo.%": {
 						Old:         "1",
 						New:         "0",
 						RequiresNew: true,
 					},
-					"foo.bar": &ResourceAttrDiff{
+					"foo.bar": {
 						Old:         "baz",
 						New:         "",
 						NewRemoved:  true,
@@ -1117,12 +731,12 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo.#": &ResourceAttrDiff{
+					"foo.#": {
 						Old:         "1",
 						New:         "0",
 						RequiresNew: true,
 					},
-					"foo.0": &ResourceAttrDiff{
+					"foo.0": {
 						Old:         "baz",
 						New:         "",
 						NewRemoved:  true,
@@ -1141,7 +755,7 @@ func TestInstanceDiffSame(t *testing.T) {
 			&InstanceDiff{
 				DestroyTainted: true,
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{
+					"foo": {
 						Old: "foo",
 						New: "foo",
 					},
@@ -1150,7 +764,7 @@ func TestInstanceDiffSame(t *testing.T) {
 			&InstanceDiff{
 				DestroyTainted: true,
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{
+					"foo": {
 						Old: "",
 						New: "foo",
 					},
@@ -1163,11 +777,11 @@ func TestInstanceDiffSame(t *testing.T) {
 		{
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{
+					"foo": {
 						Old: "foo",
 						New: "foo",
 					},
-					"bar": &ResourceAttrDiff{
+					"bar": {
 						Old:         "bar",
 						New:         "baz",
 						RequiresNew: true,
@@ -1176,11 +790,11 @@ func TestInstanceDiffSame(t *testing.T) {
 			},
 			&InstanceDiff{
 				Attributes: map[string]*ResourceAttrDiff{
-					"foo": &ResourceAttrDiff{
+					"foo": {
 						Old: "",
 						New: "foo",
 					},
-					"bar": &ResourceAttrDiff{
+					"bar": {
 						Old:         "",
 						New:         "baz",
 						RequiresNew: true,
@@ -1206,14 +820,6 @@ func TestInstanceDiffSame(t *testing.T) {
 		})
 	}
 }
-
-const moduleDiffStrBasic = `
-CREATE: nodeA
-  bar:       "foo" => "<computed>"
-  foo:       "foo" => "bar"
-  longfoo:   "foo" => "bar" (forces new resource)
-  secretfoo: "<sensitive>" => "<sensitive>" (attribute changed)
-`
 
 func TestCountFlatmapContainerValues(t *testing.T) {
 	for i, tc := range []struct {

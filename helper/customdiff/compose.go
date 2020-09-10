@@ -1,8 +1,11 @@
 package customdiff
 
 import (
+	"context"
+
 	"github.com/hashicorp/go-multierror"
-	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
+
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
 // All returns a CustomizeDiffFunc that runs all of the given
@@ -42,10 +45,10 @@ import (
 //     }
 //
 func All(funcs ...schema.CustomizeDiffFunc) schema.CustomizeDiffFunc {
-	return func(d *schema.ResourceDiff, meta interface{}) error {
+	return func(ctx context.Context, d *schema.ResourceDiff, meta interface{}) error {
 		var err error
 		for _, f := range funcs {
-			thisErr := f(d, meta)
+			thisErr := f(ctx, d, meta)
 			if thisErr != nil {
 				err = multierror.Append(err, thisErr)
 			}
@@ -60,9 +63,9 @@ func All(funcs ...schema.CustomizeDiffFunc) schema.CustomizeDiffFunc {
 //
 // If all functions succeed, the combined function also succeeds.
 func Sequence(funcs ...schema.CustomizeDiffFunc) schema.CustomizeDiffFunc {
-	return func(d *schema.ResourceDiff, meta interface{}) error {
+	return func(ctx context.Context, d *schema.ResourceDiff, meta interface{}) error {
 		for _, f := range funcs {
-			err := f(d, meta)
+			err := f(ctx, d, meta)
 			if err != nil {
 				return err
 			}

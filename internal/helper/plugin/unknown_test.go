@@ -3,8 +3,9 @@ package plugin
 import (
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/internal/configs/configschema"
-	"github.com/zclconf/go-cty/cty"
+	"github.com/hashicorp/go-cty/cty"
+
+	"github.com/hashicorp/terraform-plugin-sdk/v2/internal/configs/configschema"
 )
 
 func TestSetUnknowns(t *testing.T) {
@@ -67,7 +68,7 @@ func TestSetUnknowns(t *testing.T) {
 			// if the object has no computed attributes, it should stay null
 			&configschema.Block{
 				Attributes: map[string]*configschema.Attribute{
-					"foo": &configschema.Attribute{
+					"foo": {
 						Type: cty.String,
 					},
 				},
@@ -103,7 +104,7 @@ func TestSetUnknowns(t *testing.T) {
 			// the set value should remain null
 			&configschema.Block{
 				Attributes: map[string]*configschema.Attribute{
-					"foo": &configschema.Attribute{
+					"foo": {
 						Type:     cty.String,
 						Computed: true,
 					},

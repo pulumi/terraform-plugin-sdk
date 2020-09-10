@@ -1,18 +1,15 @@
 package terraform
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"os"
 	"reflect"
 	"sort"
-	"strings"
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/hashicorp/terraform-plugin-sdk/internal/addrs"
-	"github.com/hashicorp/terraform-plugin-sdk/internal/configs/hcl2shim"
+
+	"github.com/hashicorp/terraform-plugin-sdk/v2/internal/addrs"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/internal/configs/hcl2shim"
 )
 
 func TestStateValidate(t *testing.T) {
@@ -28,10 +25,10 @@ func TestStateValidate(t *testing.T) {
 		"multiple modules": {
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: []string{"root", "foo"},
 					},
-					&ModuleState{
+					{
 						Path: []string{"root", "foo"},
 					},
 				},
@@ -62,8 +59,8 @@ func TestStateAddModule(t *testing.T) {
 				addrs.RootModuleInstance.Child("child", addrs.NoKey),
 			},
 			[][]string{
-				[]string{"root"},
-				[]string{"root", "child"},
+				{"root"},
+				{"root", "child"},
 			},
 		},
 
@@ -75,10 +72,10 @@ func TestStateAddModule(t *testing.T) {
 				addrs.RootModuleInstance.Child("bar", addrs.NoKey),
 			},
 			[][]string{
-				[]string{"root"},
-				[]string{"root", "bar"},
-				[]string{"root", "foo"},
-				[]string{"root", "foo", "bar"},
+				{"root"},
+				{"root", "bar"},
+				{"root", "foo"},
+				{"root", "foo", "bar"},
 			},
 		},
 		// Same last element, different middle element
@@ -91,11 +88,11 @@ func TestStateAddModule(t *testing.T) {
 				addrs.RootModuleInstance.Child("bar", addrs.NoKey),
 			},
 			[][]string{
-				[]string{"root"},
-				[]string{"root", "bar"},
-				[]string{"root", "foo"},
-				[]string{"root", "bar", "bar"},
-				[]string{"root", "foo", "bar"},
+				{"root"},
+				{"root", "bar"},
+				{"root", "foo"},
+				{"root", "bar", "bar"},
+				{"root", "foo", "bar"},
 			},
 		},
 	}
@@ -114,38 +111,6 @@ func TestStateAddModule(t *testing.T) {
 		if !reflect.DeepEqual(actual, tc.Out) {
 			t.Fatalf("wrong result\ninput: %sgot:   %#v\nwant:  %#v", spew.Sdump(tc.In), actual, tc.Out)
 		}
-	}
-}
-
-func TestStateOutputTypeRoundTrip(t *testing.T) {
-	state := &State{
-		Modules: []*ModuleState{
-			&ModuleState{
-				Path: []string{"root"},
-				Outputs: map[string]*OutputState{
-					"string_output": &OutputState{
-						Value: "String Value",
-						Type:  "string",
-					},
-				},
-			},
-		},
-	}
-	state.init()
-
-	buf := new(bytes.Buffer)
-	if err := WriteState(state, buf); err != nil {
-		t.Fatalf("err: %s", err)
-	}
-
-	roundTripped, err := ReadState(buf)
-	if err != nil {
-		t.Fatalf("err: %s", err)
-	}
-
-	if !reflect.DeepEqual(state, roundTripped) {
-		t.Logf("expected:\n%#v", state)
-		t.Fatalf("got:\n%#v", roundTripped)
 	}
 }
 
@@ -169,10 +134,10 @@ func TestStateDeepCopy(t *testing.T) {
 			&State{
 				Version: 6,
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: rootModulePath,
 						Resources: map[string]*ResourceState{
-							"test_instance.foo": &ResourceState{
+							"test_instance.foo": {
 								Primary: &InstanceState{
 									Meta: map[string]interface{}{},
 								},
@@ -189,10 +154,10 @@ func TestStateDeepCopy(t *testing.T) {
 			&State{
 				Version: 6,
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: rootModulePath,
 						Resources: map[string]*ResourceState{
-							"test_instance.foo": &ResourceState{
+							"test_instance.foo": {
 								Primary: &InstanceState{
 									Meta: map[string]interface{}{},
 								},
@@ -254,7 +219,7 @@ func TestStateEqual(t *testing.T) {
 			false,
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: []string{"root"},
 					},
 				},
@@ -267,14 +232,14 @@ func TestStateEqual(t *testing.T) {
 			true,
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: []string{"root"},
 					},
 				},
 			},
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: []string{"root"},
 					},
 				},
@@ -287,10 +252,10 @@ func TestStateEqual(t *testing.T) {
 			false,
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: rootModulePath,
 						Resources: map[string]*ResourceState{
-							"test_instance.foo": &ResourceState{
+							"test_instance.foo": {
 								Primary: &InstanceState{
 									Meta: map[string]interface{}{
 										"schema_version": "1",
@@ -303,10 +268,10 @@ func TestStateEqual(t *testing.T) {
 			},
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: rootModulePath,
 						Resources: map[string]*ResourceState{
-							"test_instance.foo": &ResourceState{
+							"test_instance.foo": {
 								Primary: &InstanceState{
 									Meta: map[string]interface{}{
 										"schema_version": "2",
@@ -325,10 +290,10 @@ func TestStateEqual(t *testing.T) {
 			true,
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: rootModulePath,
 						Resources: map[string]*ResourceState{
-							"test_instance.foo": &ResourceState{
+							"test_instance.foo": {
 								Primary: &InstanceState{
 									Meta: map[string]interface{}{
 										"timeouts": map[string]interface{}{
@@ -344,10 +309,10 @@ func TestStateEqual(t *testing.T) {
 			},
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: rootModulePath,
 						Resources: map[string]*ResourceState{
-							"test_instance.foo": &ResourceState{
+							"test_instance.foo": {
 								Primary: &InstanceState{
 									Meta: map[string]interface{}{
 										"timeouts": map[string]interface{}{
@@ -369,10 +334,10 @@ func TestStateEqual(t *testing.T) {
 			true,
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: rootModulePath,
 						Resources: map[string]*ResourceState{
-							"test_instance.foo": &ResourceState{
+							"test_instance.foo": {
 								Primary: &InstanceState{
 									Meta: map[string]interface{}{
 										"timeouts": map[string]interface{}{
@@ -388,10 +353,10 @@ func TestStateEqual(t *testing.T) {
 			},
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: rootModulePath,
 						Resources: map[string]*ResourceState{
-							"test_instance.foo": &ResourceState{
+							"test_instance.foo": {
 								Primary: &InstanceState{
 									Meta: map[string]interface{}{
 										"timeouts": map[string]interface{}{
@@ -570,124 +535,6 @@ func TestStateSameLineage(t *testing.T) {
 	}
 }
 
-func TestStateMarshalEqual(t *testing.T) {
-	tests := map[string]struct {
-		S1, S2 *State
-		Want   bool
-	}{
-		"both nil": {
-			nil,
-			nil,
-			true,
-		},
-		"first zero, second nil": {
-			&State{},
-			nil,
-			false,
-		},
-		"first nil, second zero": {
-			nil,
-			&State{},
-			false,
-		},
-		"both zero": {
-			// These are not equal because they both implicitly init with
-			// different lineage.
-			&State{},
-			&State{},
-			false,
-		},
-		"both set, same lineage": {
-			&State{
-				Lineage: "abc123",
-			},
-			&State{
-				Lineage: "abc123",
-			},
-			true,
-		},
-		"both set, same lineage, different serial": {
-			&State{
-				Lineage: "abc123",
-				Serial:  1,
-			},
-			&State{
-				Lineage: "abc123",
-				Serial:  2,
-			},
-			false,
-		},
-		"both set, same lineage, same serial, same resources": {
-			&State{
-				Lineage: "abc123",
-				Serial:  1,
-				Modules: []*ModuleState{
-					{
-						Path: []string{"root"},
-						Resources: map[string]*ResourceState{
-							"foo_bar.baz": {},
-						},
-					},
-				},
-			},
-			&State{
-				Lineage: "abc123",
-				Serial:  1,
-				Modules: []*ModuleState{
-					{
-						Path: []string{"root"},
-						Resources: map[string]*ResourceState{
-							"foo_bar.baz": {},
-						},
-					},
-				},
-			},
-			true,
-		},
-		"both set, same lineage, same serial, different resources": {
-			&State{
-				Lineage: "abc123",
-				Serial:  1,
-				Modules: []*ModuleState{
-					{
-						Path: []string{"root"},
-						Resources: map[string]*ResourceState{
-							"foo_bar.baz": {},
-						},
-					},
-				},
-			},
-			&State{
-				Lineage: "abc123",
-				Serial:  1,
-				Modules: []*ModuleState{
-					{
-						Path: []string{"root"},
-						Resources: map[string]*ResourceState{
-							"pizza_crust.tasty": {},
-						},
-					},
-				},
-			},
-			false,
-		},
-	}
-
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			got := test.S1.MarshalEqual(test.S2)
-			if got != test.Want {
-				t.Errorf("wrong result %#v; want %#v", got, test.Want)
-				s1Buf := &bytes.Buffer{}
-				s2Buf := &bytes.Buffer{}
-				_ = WriteState(test.S1, s1Buf)
-				_ = WriteState(test.S2, s2Buf)
-				t.Logf("\nState 1: %s\nState 2: %s", s1Buf.Bytes(), s2Buf.Bytes())
-			}
-		})
-	}
-}
-
 func TestStateRemove(t *testing.T) {
 	cases := map[string]struct {
 		Address  string
@@ -697,17 +544,17 @@ func TestStateRemove(t *testing.T) {
 			"test_instance.foo",
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: rootModulePath,
 						Resources: map[string]*ResourceState{
-							"test_instance.foo": &ResourceState{
+							"test_instance.foo": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
 								},
 							},
 
-							"test_instance.bar": &ResourceState{
+							"test_instance.bar": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
@@ -719,10 +566,10 @@ func TestStateRemove(t *testing.T) {
 			},
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: rootModulePath,
 						Resources: map[string]*ResourceState{
-							"test_instance.bar": &ResourceState{
+							"test_instance.bar": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
@@ -738,10 +585,10 @@ func TestStateRemove(t *testing.T) {
 			"test_instance.foo.primary",
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: rootModulePath,
 						Resources: map[string]*ResourceState{
-							"test_instance.foo": &ResourceState{
+							"test_instance.foo": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
@@ -753,7 +600,7 @@ func TestStateRemove(t *testing.T) {
 			},
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path:      rootModulePath,
 						Resources: map[string]*ResourceState{},
 					},
@@ -765,17 +612,17 @@ func TestStateRemove(t *testing.T) {
 			"test_instance.foo[0]",
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: rootModulePath,
 						Resources: map[string]*ResourceState{
-							"test_instance.foo.0": &ResourceState{
+							"test_instance.foo.0": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
 								},
 							},
 
-							"test_instance.foo.1": &ResourceState{
+							"test_instance.foo.1": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
@@ -787,10 +634,10 @@ func TestStateRemove(t *testing.T) {
 			},
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: rootModulePath,
 						Resources: map[string]*ResourceState{
-							"test_instance.foo.1": &ResourceState{
+							"test_instance.foo.1": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
@@ -806,17 +653,17 @@ func TestStateRemove(t *testing.T) {
 			"test_instance.foo",
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: rootModulePath,
 						Resources: map[string]*ResourceState{
-							"test_instance.foo.0": &ResourceState{
+							"test_instance.foo.0": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
 								},
 							},
 
-							"test_instance.foo.1": &ResourceState{
+							"test_instance.foo.1": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
@@ -828,7 +675,7 @@ func TestStateRemove(t *testing.T) {
 			},
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path:      rootModulePath,
 						Resources: map[string]*ResourceState{},
 					},
@@ -840,10 +687,10 @@ func TestStateRemove(t *testing.T) {
 			"module.foo",
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: rootModulePath,
 						Resources: map[string]*ResourceState{
-							"test_instance.foo": &ResourceState{
+							"test_instance.foo": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
@@ -852,17 +699,17 @@ func TestStateRemove(t *testing.T) {
 						},
 					},
 
-					&ModuleState{
+					{
 						Path: []string{"root", "foo"},
 						Resources: map[string]*ResourceState{
-							"test_instance.foo": &ResourceState{
+							"test_instance.foo": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
 								},
 							},
 
-							"test_instance.bar": &ResourceState{
+							"test_instance.bar": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
@@ -874,10 +721,10 @@ func TestStateRemove(t *testing.T) {
 			},
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: rootModulePath,
 						Resources: map[string]*ResourceState{
-							"test_instance.foo": &ResourceState{
+							"test_instance.foo": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
@@ -893,10 +740,10 @@ func TestStateRemove(t *testing.T) {
 			"module.foo",
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: rootModulePath,
 						Resources: map[string]*ResourceState{
-							"test_instance.foo": &ResourceState{
+							"test_instance.foo": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
@@ -905,17 +752,17 @@ func TestStateRemove(t *testing.T) {
 						},
 					},
 
-					&ModuleState{
+					{
 						Path: []string{"root", "foo"},
 						Resources: map[string]*ResourceState{
-							"test_instance.foo": &ResourceState{
+							"test_instance.foo": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
 								},
 							},
 
-							"test_instance.bar": &ResourceState{
+							"test_instance.bar": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
@@ -924,17 +771,17 @@ func TestStateRemove(t *testing.T) {
 						},
 					},
 
-					&ModuleState{
+					{
 						Path: []string{"root", "foo", "bar"},
 						Resources: map[string]*ResourceState{
-							"test_instance.foo": &ResourceState{
+							"test_instance.foo": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
 								},
 							},
 
-							"test_instance.bar": &ResourceState{
+							"test_instance.bar": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
@@ -946,10 +793,10 @@ func TestStateRemove(t *testing.T) {
 			},
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{
+					{
 						Path: rootModulePath,
 						Resources: map[string]*ResourceState{
-							"test_instance.foo": &ResourceState{
+							"test_instance.foo": {
 								Type: "test_instance",
 								Primary: &InstanceState{
 									ID: "foo",
@@ -1252,7 +1099,7 @@ func TestStateEmpty(t *testing.T) {
 		{
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{},
+					{},
 				},
 			},
 			false,
@@ -1288,7 +1135,7 @@ func TestStateHasResources(t *testing.T) {
 		{
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{},
+					{},
 				},
 			},
 			false,
@@ -1296,8 +1143,8 @@ func TestStateHasResources(t *testing.T) {
 		{
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{},
-					&ModuleState{},
+					{},
+					{},
 				},
 			},
 			false,
@@ -1305,10 +1152,10 @@ func TestStateHasResources(t *testing.T) {
 		{
 			&State{
 				Modules: []*ModuleState{
-					&ModuleState{},
-					&ModuleState{
+					{},
+					{
 						Resources: map[string]*ResourceState{
-							"foo.foo": &ResourceState{},
+							"foo.foo": {},
 						},
 					},
 				},
@@ -1320,34 +1167,6 @@ func TestStateHasResources(t *testing.T) {
 	for i, tc := range cases {
 		if tc.In.HasResources() != tc.Result {
 			t.Fatalf("bad %d %#v:\n\n%#v", i, tc.Result, tc.In)
-		}
-	}
-}
-
-func TestStateFromFutureTerraform(t *testing.T) {
-	cases := []struct {
-		In     string
-		Result bool
-	}{
-		{
-			"",
-			false,
-		},
-		{
-			"0.1",
-			false,
-		},
-		{
-			"999.15.1",
-			true,
-		},
-	}
-
-	for _, tc := range cases {
-		state := &State{TFVersion: tc.In}
-		actual := state.FromFutureTerraform()
-		if actual != tc.Result {
-			t.Fatalf("%s: bad: %v", tc.In, actual)
 		}
 	}
 }
@@ -1391,20 +1210,20 @@ func TestInstanceState_MergeDiff(t *testing.T) {
 
 	diff := &InstanceDiff{
 		Attributes: map[string]*ResourceAttrDiff{
-			"foo": &ResourceAttrDiff{
+			"foo": {
 				Old: "bar",
 				New: "baz",
 			},
-			"bar": &ResourceAttrDiff{
+			"bar": {
 				Old: "",
 				New: "foo",
 			},
-			"baz": &ResourceAttrDiff{
+			"baz": {
 				Old:         "",
 				New:         "foo",
 				NewComputed: true,
 			},
-			"port": &ResourceAttrDiff{
+			"port": {
 				NewRemoved: true,
 			},
 		},
@@ -1431,18 +1250,18 @@ func TestInstanceState_MergeDiff_computedSet(t *testing.T) {
 
 	diff := &InstanceDiff{
 		Attributes: map[string]*ResourceAttrDiff{
-			"config.#": &ResourceAttrDiff{
+			"config.#": {
 				Old:         "0",
 				New:         "1",
 				RequiresNew: true,
 			},
 
-			"config.0.name": &ResourceAttrDiff{
+			"config.0.name": {
 				Old: "",
 				New: "hello",
 			},
 
-			"config.0.rules.#": &ResourceAttrDiff{
+			"config.0.rules.#": {
 				Old:         "",
 				NewComputed: true,
 			},
@@ -1467,7 +1286,7 @@ func TestInstanceState_MergeDiff_nil(t *testing.T) {
 
 	diff := &InstanceDiff{
 		Attributes: map[string]*ResourceAttrDiff{
-			"foo": &ResourceAttrDiff{
+			"foo": {
 				Old: "",
 				New: "baz",
 			},
@@ -1501,195 +1320,6 @@ func TestInstanceState_MergeDiff_nilDiff(t *testing.T) {
 
 	if !reflect.DeepEqual(expected, is2.Attributes) {
 		t.Fatalf("bad: %#v", is2.Attributes)
-	}
-}
-
-func TestReadWriteState(t *testing.T) {
-	state := &State{
-		Serial:  9,
-		Lineage: "5d1ad1a1-4027-4665-a908-dbe6adff11d8",
-		Remote: &RemoteState{
-			Type: "http",
-			Config: map[string]string{
-				"url": "http://my-cool-server.com/",
-			},
-		},
-		Modules: []*ModuleState{
-			&ModuleState{
-				Path: rootModulePath,
-				Dependencies: []string{
-					"aws_instance.bar",
-				},
-				Resources: map[string]*ResourceState{
-					"foo": &ResourceState{
-						Primary: &InstanceState{
-							ID: "bar",
-							Ephemeral: EphemeralState{
-								ConnInfo: map[string]string{
-									"type":     "ssh",
-									"user":     "root",
-									"password": "supersecret",
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-	state.init()
-
-	buf := new(bytes.Buffer)
-	if err := WriteState(state, buf); err != nil {
-		t.Fatalf("err: %s", err)
-	}
-
-	// Verify that the version and serial are set
-	if state.Version != StateVersion {
-		t.Fatalf("bad version number: %d", state.Version)
-	}
-
-	actual, err := ReadState(buf)
-	if err != nil {
-		t.Fatalf("err: %s", err)
-	}
-
-	// ReadState should not restore sensitive information!
-	mod := state.RootModule()
-	mod.Resources["foo"].Primary.Ephemeral = EphemeralState{}
-	mod.Resources["foo"].Primary.Ephemeral.init()
-
-	if !reflect.DeepEqual(actual, state) {
-		t.Logf("expected:\n%#v", state)
-		t.Fatalf("got:\n%#v", actual)
-	}
-}
-
-func TestReadStateNewVersion(t *testing.T) {
-	type out struct {
-		Version int
-	}
-
-	buf, err := json.Marshal(&out{StateVersion + 1})
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-
-	s, err := ReadState(bytes.NewReader(buf))
-	if s != nil {
-		t.Fatalf("unexpected: %#v", s)
-	}
-	if !strings.Contains(err.Error(), "does not support state version") {
-		t.Fatalf("err: %v", err)
-	}
-}
-
-func TestReadStateEmptyOrNilFile(t *testing.T) {
-	var emptyState bytes.Buffer
-	_, err := ReadState(&emptyState)
-	if err != ErrNoState {
-		t.Fatal("expected ErrNostate, got", err)
-	}
-
-	var nilFile *os.File
-	_, err = ReadState(nilFile)
-	if err != ErrNoState {
-		t.Fatal("expected ErrNostate, got", err)
-	}
-}
-
-func TestReadStateTFVersion(t *testing.T) {
-	type tfVersion struct {
-		Version   int    `json:"version"`
-		TFVersion string `json:"terraform_version"`
-	}
-
-	cases := []struct {
-		Written string
-		Read    string
-		Err     bool
-	}{
-		{
-			"0.0.0",
-			"0.0.0",
-			false,
-		},
-		{
-			"",
-			"",
-			false,
-		},
-		{
-			"bad",
-			"",
-			true,
-		},
-	}
-
-	for _, tc := range cases {
-		buf, err := json.Marshal(&tfVersion{
-			Version:   2,
-			TFVersion: tc.Written,
-		})
-		if err != nil {
-			t.Fatalf("err: %v", err)
-		}
-
-		s, err := ReadState(bytes.NewReader(buf))
-		if (err != nil) != tc.Err {
-			t.Fatalf("%s: err: %s", tc.Written, err)
-		}
-		if err != nil {
-			continue
-		}
-
-		if s.TFVersion != tc.Read {
-			t.Fatalf("%s: bad: %s", tc.Written, s.TFVersion)
-		}
-	}
-}
-
-func TestWriteStateTFVersion(t *testing.T) {
-	cases := []struct {
-		Write string
-		Read  string
-		Err   bool
-	}{
-		{
-			"0.0.0",
-			"0.0.0",
-			false,
-		},
-		{
-			"",
-			"",
-			false,
-		},
-		{
-			"bad",
-			"",
-			true,
-		},
-	}
-
-	for _, tc := range cases {
-		var buf bytes.Buffer
-		err := WriteState(&State{TFVersion: tc.Write}, &buf)
-		if (err != nil) != tc.Err {
-			t.Fatalf("%s: err: %s", tc.Write, err)
-		}
-		if err != nil {
-			continue
-		}
-
-		s, err := ReadState(&buf)
-		if err != nil {
-			t.Fatalf("%s: err: %s", tc.Write, err)
-		}
-
-		if s.TFVersion != tc.Read {
-			t.Fatalf("%s: bad: %s", tc.Write, s.TFVersion)
-		}
 	}
 }
 
@@ -1749,113 +1379,13 @@ func TestParseResourceStateKey(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		rsk, err := ParseResourceStateKey(tc.Input)
+		rsk, err := parseResourceStateKey(tc.Input)
 		if rsk != nil && tc.Expected != nil && !rsk.Equal(tc.Expected) {
 			t.Fatalf("%s: expected %s, got %s", tc.Input, tc.Expected, rsk)
 		}
 		if (err != nil) != tc.ExpectedErr {
 			t.Fatalf("%s: expected err: %t, got %s", tc.Input, tc.ExpectedErr, err)
 		}
-	}
-}
-
-func TestReadState_prune(t *testing.T) {
-	state := &State{
-		Modules: []*ModuleState{
-			&ModuleState{Path: rootModulePath},
-			nil,
-		},
-	}
-	state.init()
-
-	buf := new(bytes.Buffer)
-	if err := WriteState(state, buf); err != nil {
-		t.Fatalf("err: %s", err)
-	}
-
-	actual, err := ReadState(buf)
-	if err != nil {
-		t.Fatalf("err: %s", err)
-	}
-
-	expected := &State{
-		Version: state.Version,
-		Lineage: state.Lineage,
-	}
-	expected.init()
-
-	if !reflect.DeepEqual(actual, expected) {
-		t.Fatalf("got:\n%#v", actual)
-	}
-}
-
-func TestReadState_pruneDependencies(t *testing.T) {
-	state := &State{
-		Serial:  9,
-		Lineage: "5d1ad1a1-4027-4665-a908-dbe6adff11d8",
-		Remote: &RemoteState{
-			Type: "http",
-			Config: map[string]string{
-				"url": "http://my-cool-server.com/",
-			},
-		},
-		Modules: []*ModuleState{
-			&ModuleState{
-				Path: rootModulePath,
-				Dependencies: []string{
-					"aws_instance.bar",
-					"aws_instance.bar",
-				},
-				Resources: map[string]*ResourceState{
-					"foo": &ResourceState{
-						Dependencies: []string{
-							"aws_instance.baz",
-							"aws_instance.baz",
-						},
-						Primary: &InstanceState{
-							ID: "bar",
-						},
-					},
-				},
-			},
-		},
-	}
-	state.init()
-
-	buf := new(bytes.Buffer)
-	if err := WriteState(state, buf); err != nil {
-		t.Fatalf("err: %s", err)
-	}
-
-	actual, err := ReadState(buf)
-	if err != nil {
-		t.Fatalf("err: %s", err)
-	}
-
-	// make sure the duplicate Dependencies are filtered
-	modDeps := actual.Modules[0].Dependencies
-	resourceDeps := actual.Modules[0].Resources["foo"].Dependencies
-
-	if len(modDeps) > 1 || modDeps[0] != "aws_instance.bar" {
-		t.Fatalf("expected 1 module depends_on entry, got %q", modDeps)
-	}
-
-	if len(resourceDeps) > 1 || resourceDeps[0] != "aws_instance.baz" {
-		t.Fatalf("expected 1 resource depends_on entry, got  %q", resourceDeps)
-	}
-}
-
-func TestReadState_bigHash(t *testing.T) {
-	expected := uint64(14885267135666261723)
-	s := strings.NewReader(`{"version": 3, "backend":{"hash":14885267135666261723}}`)
-
-	actual, err := ReadState(s)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if actual.Backend.Hash != expected {
-		t.Fatalf("expected backend hash %d, got %d", expected, actual.Backend.Hash)
 	}
 }
 

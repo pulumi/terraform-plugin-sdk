@@ -5,9 +5,10 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/hashicorp/terraform-plugin-sdk/internal/configs/configschema"
-	proto "github.com/hashicorp/terraform-plugin-sdk/internal/tfplugin5"
-	"github.com/zclconf/go-cty/cty"
+	"github.com/hashicorp/go-cty/cty"
+
+	"github.com/hashicorp/terraform-plugin-sdk/v2/internal/configs/configschema"
+	proto "github.com/hashicorp/terraform-plugin-sdk/v2/internal/tfplugin5"
 )
 
 var (
@@ -105,16 +106,16 @@ func TestConvertSchemaBlocks(t *testing.T) {
 			},
 			&configschema.Block{
 				BlockTypes: map[string]*configschema.NestedBlock{
-					"list": &configschema.NestedBlock{
+					"list": {
 						Nesting: configschema.NestingList,
 					},
-					"map": &configschema.NestedBlock{
+					"map": {
 						Nesting: configschema.NestingMap,
 					},
-					"set": &configschema.NestedBlock{
+					"set": {
 						Nesting: configschema.NestingSet,
 					},
-					"single": &configschema.NestedBlock{
+					"single": {
 						Nesting: configschema.NestingSingle,
 						Block: configschema.Block{
 							Attributes: map[string]*configschema.Attribute{
@@ -156,15 +157,15 @@ func TestConvertSchemaBlocks(t *testing.T) {
 			},
 			&configschema.Block{
 				BlockTypes: map[string]*configschema.NestedBlock{
-					"single": &configschema.NestedBlock{
+					"single": {
 						Nesting: configschema.NestingSingle,
 						Block: configschema.Block{
 							BlockTypes: map[string]*configschema.NestedBlock{
-								"list": &configschema.NestedBlock{
+								"list": {
 									Nesting: configschema.NestingList,
 									Block: configschema.Block{
 										BlockTypes: map[string]*configschema.NestedBlock{
-											"set": &configschema.NestedBlock{
+											"set": {
 												Nesting: configschema.NestingSet,
 											},
 										},
@@ -277,16 +278,16 @@ func TestConvertProtoSchemaBlocks(t *testing.T) {
 			},
 			&configschema.Block{
 				BlockTypes: map[string]*configschema.NestedBlock{
-					"list": &configschema.NestedBlock{
+					"list": {
 						Nesting: configschema.NestingList,
 					},
-					"map": &configschema.NestedBlock{
+					"map": {
 						Nesting: configschema.NestingMap,
 					},
-					"set": &configschema.NestedBlock{
+					"set": {
 						Nesting: configschema.NestingSet,
 					},
-					"single": &configschema.NestedBlock{
+					"single": {
 						Nesting: configschema.NestingSingle,
 						Block: configschema.Block{
 							Attributes: map[string]*configschema.Attribute{
@@ -328,15 +329,15 @@ func TestConvertProtoSchemaBlocks(t *testing.T) {
 			},
 			&configschema.Block{
 				BlockTypes: map[string]*configschema.NestedBlock{
-					"single": &configschema.NestedBlock{
+					"single": {
 						Nesting: configschema.NestingSingle,
 						Block: configschema.Block{
 							BlockTypes: map[string]*configschema.NestedBlock{
-								"list": &configschema.NestedBlock{
+								"list": {
 									Nesting: configschema.NestingList,
 									Block: configschema.Block{
 										BlockTypes: map[string]*configschema.NestedBlock{
-											"set": &configschema.NestedBlock{
+											"set": {
 												Nesting: configschema.NestingSet,
 											},
 										},

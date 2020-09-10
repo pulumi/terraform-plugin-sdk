@@ -3,72 +3,14 @@ package terraform
 import (
 	"fmt"
 	"reflect"
-	"strconv"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/internal/configs/configschema"
-	"github.com/zclconf/go-cty/cty"
-
-	"github.com/hashicorp/terraform-plugin-sdk/internal/configs/hcl2shim"
+	"github.com/hashicorp/go-cty/cty"
 	"github.com/mitchellh/reflectwalk"
+
+	"github.com/hashicorp/terraform-plugin-sdk/v2/internal/configs/configschema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/internal/configs/hcl2shim"
 )
-
-func TestInstanceInfoResourceAddress(t *testing.T) {
-	tests := []struct {
-		Input *InstanceInfo
-		Want  string
-	}{
-		{
-			&InstanceInfo{
-				Id: "test_resource.baz",
-			},
-			"test_resource.baz",
-		},
-		{
-			&InstanceInfo{
-				Id:         "test_resource.baz",
-				ModulePath: rootModulePath,
-			},
-			"test_resource.baz",
-		},
-		{
-			&InstanceInfo{
-				Id:         "test_resource.baz",
-				ModulePath: []string{"root", "foo"},
-			},
-			"module.foo.test_resource.baz",
-		},
-		{
-			&InstanceInfo{
-				Id:         "test_resource.baz",
-				ModulePath: []string{"root", "foo", "bar"},
-			},
-			"module.foo.module.bar.test_resource.baz",
-		},
-		{
-			&InstanceInfo{
-				Id: "test_resource.baz (tainted)",
-			},
-			"test_resource.baz.tainted",
-		},
-		{
-			&InstanceInfo{
-				Id: "test_resource.baz (deposed #0)",
-			},
-			"test_resource.baz.deposed",
-		},
-	}
-
-	for i, test := range tests {
-		t.Run(strconv.Itoa(i), func(t *testing.T) {
-			gotAddr := test.Input.ResourceAddress()
-			got := gotAddr.String()
-			if got != test.Want {
-				t.Fatalf("wrong result\ngot:  %s\nwant: %s", got, test.Want)
-			}
-		})
-	}
-}
 
 func TestResourceConfigGet(t *testing.T) {
 	fooStringSchema := &configschema.Block{
@@ -650,12 +592,12 @@ func TestNewResourceConfigShimmed(t *testing.T) {
 			}),
 			Schema: &configschema.Block{
 				Attributes: map[string]*configschema.Attribute{
-					"bar": &configschema.Attribute{
+					"bar": {
 						Type: cty.Set(cty.Object(map[string]cty.Type{
 							"val": cty.String,
 						})),
 					},
-					"baz": &configschema.Attribute{
+					"baz": {
 						Type: cty.Set(cty.Object(map[string]cty.Type{
 							"obj": cty.Object(map[string]cty.Type{
 								"attr": cty.List(cty.String),

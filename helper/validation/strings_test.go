@@ -305,6 +305,36 @@ func TestValidationStringInSlice(t *testing.T) {
 	})
 }
 
+func TestValidationStringNotInSlice(t *testing.T) {
+	runTestCases(t, []testCase{
+		{
+			val: "ValidValue",
+			f:   StringNotInSlice([]string{"InvalidValue", "AnotherInvalidValue"}, false),
+		},
+		// ignore case
+		{
+			val: "VALIDVALUE",
+			f:   StringNotInSlice([]string{"InvalidValue", "AnotherInvalidValue"}, true),
+		},
+		{
+			val:         "AnotherInvalidValue",
+			f:           StringNotInSlice([]string{"InvalidValue", "AnotherInvalidValue"}, false),
+			expectedErr: regexp.MustCompile("expected [\\w]+ to not be any of \\[InvalidValue AnotherInvalidValue\\], got AnotherInvalidValue"),
+		},
+		// ignore case
+		{
+			val:         "INVALIDVALUE",
+			f:           StringNotInSlice([]string{"InvalidValue", "AnotherInvalidValue"}, true),
+			expectedErr: regexp.MustCompile("expected [\\w]+ to not be any of \\[InvalidValue AnotherInvalidValue\\], got INVALIDVALUE"),
+		},
+		{
+			val:         1,
+			f:           StringNotInSlice([]string{"InvalidValue", "AnotherInvalidValue"}, false),
+			expectedErr: regexp.MustCompile("expected type of [\\w]+ to be string"),
+		},
+	})
+}
+
 func TestValidationStringMatch(t *testing.T) {
 	runTestCases(t, []testCase{
 		{
@@ -343,7 +373,7 @@ func TestValidationStringDoesNotMatch(t *testing.T) {
 	})
 }
 
-func TestValidateJsonString(t *testing.T) {
+func TestStringIsJSON(t *testing.T) {
 	type testCases struct {
 		Value    string
 		ErrCount int
@@ -369,7 +399,7 @@ func TestValidateJsonString(t *testing.T) {
 	}
 
 	for _, tc := range invalidCases {
-		_, errors := ValidateJsonString(tc.Value, "json")
+		_, errors := StringIsJSON(tc.Value, "json")
 		if len(errors) != tc.ErrCount {
 			t.Fatalf("Expected %q to trigger a validation error.", tc.Value)
 		}
@@ -391,7 +421,7 @@ func TestValidateJsonString(t *testing.T) {
 	}
 
 	for _, tc := range validCases {
-		_, errors := ValidateJsonString(tc.Value, "json")
+		_, errors := StringIsJSON(tc.Value, "json")
 		if len(errors) != tc.ErrCount {
 			t.Fatalf("Expected %q not to trigger a validation error.", tc.Value)
 		}
@@ -426,15 +456,15 @@ func TestStringDoesNotContainAny(t *testing.T) {
 	}
 }
 
-func TestValidationRegexp(t *testing.T) {
+func TestStringIsValidRegExp(t *testing.T) {
 	runTestCases(t, []testCase{
 		{
 			val: ".*foo.*",
-			f:   ValidateRegexp,
+			f:   StringIsValidRegExp,
 		},
 		{
 			val:         "foo(bar",
-			f:           ValidateRegexp,
+			f:           StringIsValidRegExp,
 			expectedErr: regexp.MustCompile(regexp.QuoteMeta("error parsing regexp: missing closing ): `foo(bar`")),
 		},
 	})

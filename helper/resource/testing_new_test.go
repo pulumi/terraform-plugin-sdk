@@ -8,7 +8,8 @@ import (
 
 	"github.com/go-test/deep"
 	tfjson "github.com/hashicorp/terraform-json"
-	"github.com/hashicorp/terraform-plugin-sdk/terraform"
+
+	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
 
 func TestShimState(t *testing.T) {
