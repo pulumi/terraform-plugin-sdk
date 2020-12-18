@@ -1,15 +1,71 @@
-# 2.0.2 (Unreleased)
+# 2.4.0 (Unreleased)
+
+ENHANCEMENTS
+
+* Support `Unwrap` on SDK errors [GH-647]
+* Allow for `nil` errors in `diag.FromErr` [GH-623]
+* Added `validation.ToDiagFunc` helper to translate legacy validation functions into Diagnostics-aware validation functions. [GH-611]
+* Disable Checkpoint network connections during acceptance testing unless a Terraform binary needs to be installed. [GH-663]
 
 BUG FIXES
 
-* Fixed bug where state is read from the wrong workspace during import tests. [GH-552]
-* Fixed bug where the resource could belong to another provider when finding the resource state to check during import tests [GH-522]
-* Removed excessive logging when ExpectNonEmptyPlan was successfully matched [GH-556]
-* Fixed bug where state from data sources, which can't be imported, would be surfaced during ImportStateVerify [GH-555]
-* Fixed bug that ignored ExpectError when testing state imports [GH-550]
-* Fixed bug that sometimes prevented TestStep numbers from appearing in error output [GH-557]
-* Fixed bug that would ignore `TestStep.Destroy` when running tests. [GH-563]
-* Fixed bug where reattach info would not be supplied during tests. [GH-567]
+* Check for `nil` errors prior to invoking `ErrorCheck` [GH-646]
+* More reliable handling of logging [GH-639]
+* Modified error text to make golint and go vet happy when a non-empty plan is found in testing and an empty plan was expected [GH-596]
+* Add `UseJSONNumber` to `helper/schema.Resource` to make it possible to represent large numbers precisely. Setting to `true` will make numbers appear as `json.Number` in `StateUpgrader`s instead of as `float64`. [GH-662]
+* Fix logs sometimes appearing in test output when running acceptance tests. [GH-665]
+
+NOTES
+
+We have removed the deprecation of the non-diagnostic version of validation until the build-in validations are ported to the new format.
+
+# 2.3.0 (November 20, 2020)
+
+ENHANCEMENTS
+
+* `helper/schema.ResourceData` now has `HasChangeExcept` and `HasChangesExcept` methods to check if the resource has changes _besides_ a given key or list of keys. ([#558](https://github.com/hashicorp/terraform-plugin-sdk/issues/558))
+* `helper/resource.TestCase` now has an `ErrorCheck` property that can be set to a function, allowing the programmatic determination of whether to ignore an error or not. ([#592](https://github.com/hashicorp/terraform-plugin-sdk/issues/592))
+
+# 2.2.0 (November 02, 2020)
+
+FEATURES
+* Updated to use the new [`terraform-plugin-go`](https://github.com/hashicorp/terraform-plugin-go) library as a foundation for the SDK, enabling it to be used with [`terraform-plugin-mux`](https://github.com/hashicorp/terraform-plugin-mux) ([#630](https://github.com/hashicorp/terraform-plugin-sdk/issues/630))
+* Added the `TestCase.ProtoV5ProviderFactories` property to allow testing providers created with `terraform-plugin-go` with the `helper/resource` test framework. ([#630](https://github.com/hashicorp/terraform-plugin-sdk/issues/630))
+
+# 2.1.0 (October 27, 2020)
+
+FEATURES
+* Relaxed validation in `InternalValidate` for explicitly set `id` attributes ([#613](https://github.com/hashicorp/terraform-plugin-sdk/issues/613))
+* Ported TypeSet test check funcs essential for migrating to V2 of the SDK ([#614](https://github.com/hashicorp/terraform-plugin-sdk/issues/614))
+* Improved debug output for how to manually invoke the Terraform CLI ([#615](https://github.com/hashicorp/terraform-plugin-sdk/issues/615))
+
+# 2.0.4 (October 06, 2020)
+
+BUG FIXES
+* Fix a bug that would pass the post-destroy state to `helper/resource.TestCase.CheckDestroy` instead of the documented pre-destroy state ([#591](https://github.com/hashicorp/terraform-plugin-sdk/issues/591))
+* Clean up the final remaining places where test numbers or dangling resources warnings could be omitted from errors ([#578](https://github.com/hashicorp/terraform-plugin-sdk/issues/578))
+* Stop considering plans empty when they include data source changes ([#594](https://github.com/hashicorp/terraform-plugin-sdk/issues/594))
+
+# 2.0.3 (September 15, 2020)
+
+BUG FIXES
+
+* Fixed a bug that would incorrectly mark tests using TestStep.ImportStateVerify as failed if they tested a resource with custom timeouts ([#576](https://github.com/hashicorp/terraform-plugin-sdk/issues/576))
+* Fixed a bug where errors destroying infrastructure after tests wouldn't be reported ([#581](https://github.com/hashicorp/terraform-plugin-sdk/issues/581))
+* Fixed a bug where test steps that expected a non-empty plan would fail because they had an empty plan, erroneously ([#580](https://github.com/hashicorp/terraform-plugin-sdk/issues/580))
+* Fixed a bug where the plan output shown when an unexpected diff was encountered during testing would be shown in JSON instead of a human-readable format ([#584](https://github.com/hashicorp/terraform-plugin-sdk/issues/584))
+
+# 2.0.2 (September 10, 2020)
+
+BUG FIXES
+
+* Fixed bug where state is read from the wrong workspace during import tests. ([#552](https://github.com/hashicorp/terraform-plugin-sdk/issues/552))
+* Fixed bug where the resource could belong to another provider when finding the resource state to check during import tests ([#522](https://github.com/hashicorp/terraform-plugin-sdk/issues/522))
+* Removed excessive logging when ExpectNonEmptyPlan was successfully matched ([#556](https://github.com/hashicorp/terraform-plugin-sdk/issues/556))
+* Fixed bug where state from data sources, which can't be imported, would be surfaced during ImportStateVerify ([#555](https://github.com/hashicorp/terraform-plugin-sdk/issues/555))
+* Fixed bug that ignored ExpectError when testing state imports ([#550](https://github.com/hashicorp/terraform-plugin-sdk/issues/550))
+* Fixed bug that sometimes prevented TestStep numbers from appearing in error output ([#557](https://github.com/hashicorp/terraform-plugin-sdk/issues/557))
+* Fixed bug that would ignore `TestStep.Destroy` when running tests. ([#563](https://github.com/hashicorp/terraform-plugin-sdk/issues/563))
 
 # 2.0.1 (August 10, 2020)
 

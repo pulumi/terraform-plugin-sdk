@@ -1,45 +1,39 @@
-package plugin
+package schema
 
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/hashicorp/go-cty/cty"
 	"github.com/hashicorp/go-cty/cty/msgpack"
 
+	"github.com/hashicorp/terraform-plugin-go/tfprotov5"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/internal/plugin/convert"
-	proto "github.com/hashicorp/terraform-plugin-sdk/v2/internal/tfplugin5"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
 
 // The GRPCProviderServer will directly implement the go protobuf server
-var _ proto.ProviderServer = (*GRPCProviderServer)(nil)
-
-var (
-	valueComparer = cmp.Comparer(cty.Value.RawEquals)
-	equateEmpty   = cmpopts.EquateEmpty()
-)
+var _ tfprotov5.ProviderServer = (*GRPCProviderServer)(nil)
 
 func TestUpgradeState_jsonState(t *testing.T) {
-	r := &schema.Resource{
+	r := &Resource{
 		SchemaVersion: 2,
-		Schema: map[string]*schema.Schema{
+		Schema: map[string]*Schema{
 			"two": {
-				Type:     schema.TypeInt,
+				Type:     TypeInt,
 				Optional: true,
 			},
 		},
 	}
 
-	r.StateUpgraders = []schema.StateUpgrader{
+	r.StateUpgraders = []StateUpgrader{
 		{
 			Version: 0,
 			Type: cty.Object(map[string]cty.Type{
@@ -74,17 +68,17 @@ func TestUpgradeState_jsonState(t *testing.T) {
 		},
 	}
 
-	server := NewGRPCProviderServer(&schema.Provider{
-		ResourcesMap: map[string]*schema.Resource{
+	server := NewGRPCProviderServer(&Provider{
+		ResourcesMap: map[string]*Resource{
 			"test": r,
 		},
 	})
 
-	req := &proto.UpgradeResourceState_Request{
+	req := &tfprotov5.UpgradeResourceStateRequest{
 		TypeName: "test",
 		Version:  0,
-		RawState: &proto.RawState{
-			Json: []byte(`{"id":"bar","zero":0}`),
+		RawState: &tfprotov5.RawState{
+			JSON: []byte(`{"id":"bar","zero":0}`),
 		},
 	}
 
@@ -100,7 +94,7 @@ func TestUpgradeState_jsonState(t *testing.T) {
 		t.Fatal("error")
 	}
 
-	val, err := msgpack.Unmarshal(resp.UpgradedState.Msgpack, r.CoreConfigSchema().ImpliedType())
+	val, err := msgpack.Unmarshal(resp.UpgradedState.MsgPack, r.CoreConfigSchema().ImpliedType())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,30 +109,83 @@ func TestUpgradeState_jsonState(t *testing.T) {
 	}
 }
 
+func TestUpgradeState_jsonStateBigInt(t *testing.T) {
+	r := &Resource{
+		UseJSONNumber: true,
+		SchemaVersion: 2,
+		Schema: map[string]*Schema{
+			"int": {
+				Type:     TypeInt,
+				Required: true,
+			},
+		},
+	}
+
+	server := NewGRPCProviderServer(&Provider{
+		ResourcesMap: map[string]*Resource{
+			"test": r,
+		},
+	})
+
+	req := &tfprotov5.UpgradeResourceStateRequest{
+		TypeName: "test",
+		Version:  0,
+		RawState: &tfprotov5.RawState{
+			JSON: []byte(`{"id":"bar","int":7227701560655103598}`),
+		},
+	}
+
+	resp, err := server.UpgradeResourceState(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(resp.Diagnostics) > 0 {
+		for _, d := range resp.Diagnostics {
+			t.Errorf("%#v", d)
+		}
+		t.Fatal("error")
+	}
+
+	val, err := msgpack.Unmarshal(resp.UpgradedState.MsgPack, r.CoreConfigSchema().ImpliedType())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := cty.ObjectVal(map[string]cty.Value{
+		"id":  cty.StringVal("bar"),
+		"int": cty.NumberIntVal(7227701560655103598),
+	})
+
+	if !cmp.Equal(expected, val, valueComparer, equateEmpty) {
+		t.Fatal(cmp.Diff(expected, val, valueComparer, equateEmpty))
+	}
+}
+
 func TestUpgradeState_removedAttr(t *testing.T) {
-	r1 := &schema.Resource{
-		Schema: map[string]*schema.Schema{
+	r1 := &Resource{
+		Schema: map[string]*Schema{
 			"two": {
-				Type:     schema.TypeString,
+				Type:     TypeString,
 				Optional: true,
 			},
 		},
 	}
 
-	r2 := &schema.Resource{
-		Schema: map[string]*schema.Schema{
+	r2 := &Resource{
+		Schema: map[string]*Schema{
 			"multi": {
-				Type:     schema.TypeSet,
+				Type:     TypeSet,
 				Optional: true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
+				Elem: &Resource{
+					Schema: map[string]*Schema{
 						"set": {
-							Type:     schema.TypeSet,
+							Type:     TypeSet,
 							Optional: true,
-							Elem: &schema.Resource{
-								Schema: map[string]*schema.Schema{
+							Elem: &Resource{
+								Schema: map[string]*Schema{
 									"required": {
-										Type:     schema.TypeString,
+										Type:     TypeString,
 										Required: true,
 									},
 								},
@@ -150,16 +197,16 @@ func TestUpgradeState_removedAttr(t *testing.T) {
 		},
 	}
 
-	r3 := &schema.Resource{
-		Schema: map[string]*schema.Schema{
+	r3 := &Resource{
+		Schema: map[string]*Schema{
 			"config_mode_attr": {
-				Type:       schema.TypeList,
-				ConfigMode: schema.SchemaConfigModeAttr,
+				Type:       TypeList,
+				ConfigMode: SchemaConfigModeAttr,
 				Optional:   true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
+				Elem: &Resource{
+					Schema: map[string]*Schema{
 						"foo": {
-							Type:     schema.TypeString,
+							Type:     TypeString,
 							Optional: true,
 						},
 					},
@@ -168,8 +215,8 @@ func TestUpgradeState_removedAttr(t *testing.T) {
 		},
 	}
 
-	p := &schema.Provider{
-		ResourcesMap: map[string]*schema.Resource{
+	p := &Provider{
+		ResourcesMap: map[string]*Resource{
 			"r1": r1,
 			"r2": r2,
 			"r3": r3,
@@ -221,11 +268,11 @@ func TestUpgradeState_removedAttr(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			req := &proto.UpgradeResourceState_Request{
+			req := &tfprotov5.UpgradeResourceStateRequest{
 				TypeName: tc.name,
 				Version:  0,
-				RawState: &proto.RawState{
-					Json: []byte(tc.raw),
+				RawState: &tfprotov5.RawState{
+					JSON: []byte(tc.raw),
 				},
 			}
 			resp, err := server.UpgradeResourceState(nil, req)
@@ -239,7 +286,7 @@ func TestUpgradeState_removedAttr(t *testing.T) {
 				}
 				t.Fatal("error")
 			}
-			val, err := msgpack.Unmarshal(resp.UpgradedState.Msgpack, p.ResourcesMap[tc.name].CoreConfigSchema().ImpliedType())
+			val, err := msgpack.Unmarshal(resp.UpgradedState.MsgPack, p.ResourcesMap[tc.name].CoreConfigSchema().ImpliedType())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -252,20 +299,20 @@ func TestUpgradeState_removedAttr(t *testing.T) {
 }
 
 func TestUpgradeState_flatmapState(t *testing.T) {
-	r := &schema.Resource{
+	r := &Resource{
 		SchemaVersion: 4,
-		Schema: map[string]*schema.Schema{
+		Schema: map[string]*Schema{
 			"four": {
-				Type:     schema.TypeInt,
+				Type:     TypeInt,
 				Required: true,
 			},
 			"block": {
-				Type:     schema.TypeList,
+				Type:     TypeList,
 				Optional: true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
+				Elem: &Resource{
+					Schema: map[string]*Schema{
 						"attr": {
-							Type:     schema.TypeString,
+							Type:     TypeString,
 							Optional: true,
 						},
 					},
@@ -297,7 +344,7 @@ func TestUpgradeState_flatmapState(t *testing.T) {
 		},
 	}
 
-	r.StateUpgraders = []schema.StateUpgrader{
+	r.StateUpgraders = []StateUpgrader{
 		{
 			Version: 2,
 			Type: cty.Object(map[string]cty.Type{
@@ -332,17 +379,17 @@ func TestUpgradeState_flatmapState(t *testing.T) {
 		},
 	}
 
-	server := NewGRPCProviderServer(&schema.Provider{
-		ResourcesMap: map[string]*schema.Resource{
+	server := NewGRPCProviderServer(&Provider{
+		ResourcesMap: map[string]*Resource{
 			"test": r,
 		},
 	})
 
-	testReqs := []*proto.UpgradeResourceState_Request{
+	testReqs := []*tfprotov5.UpgradeResourceStateRequest{
 		{
 			TypeName: "test",
 			Version:  0,
-			RawState: &proto.RawState{
+			RawState: &tfprotov5.RawState{
 				Flatmap: map[string]string{
 					"id":   "bar",
 					"zero": "0",
@@ -352,7 +399,7 @@ func TestUpgradeState_flatmapState(t *testing.T) {
 		{
 			TypeName: "test",
 			Version:  1,
-			RawState: &proto.RawState{
+			RawState: &tfprotov5.RawState{
 				Flatmap: map[string]string{
 					"id":  "bar",
 					"one": "1",
@@ -363,7 +410,7 @@ func TestUpgradeState_flatmapState(t *testing.T) {
 		{
 			TypeName: "test",
 			Version:  2,
-			RawState: &proto.RawState{
+			RawState: &tfprotov5.RawState{
 				Flatmap: map[string]string{
 					"id":  "bar",
 					"two": "2",
@@ -373,14 +420,14 @@ func TestUpgradeState_flatmapState(t *testing.T) {
 		{
 			TypeName: "test",
 			Version:  2,
-			RawState: &proto.RawState{
-				Json: []byte(`{"id":"bar","two":2}`),
+			RawState: &tfprotov5.RawState{
+				JSON: []byte(`{"id":"bar","two":2}`),
 			},
 		},
 		{
 			TypeName: "test",
 			Version:  3,
-			RawState: &proto.RawState{
+			RawState: &tfprotov5.RawState{
 				Flatmap: map[string]string{
 					"id":    "bar",
 					"three": "3",
@@ -390,14 +437,14 @@ func TestUpgradeState_flatmapState(t *testing.T) {
 		{
 			TypeName: "test",
 			Version:  3,
-			RawState: &proto.RawState{
-				Json: []byte(`{"id":"bar","three":3}`),
+			RawState: &tfprotov5.RawState{
+				JSON: []byte(`{"id":"bar","three":3}`),
 			},
 		},
 		{
 			TypeName: "test",
 			Version:  4,
-			RawState: &proto.RawState{
+			RawState: &tfprotov5.RawState{
 				Flatmap: map[string]string{
 					"id":   "bar",
 					"four": "4",
@@ -407,8 +454,8 @@ func TestUpgradeState_flatmapState(t *testing.T) {
 		{
 			TypeName: "test",
 			Version:  4,
-			RawState: &proto.RawState{
-				Json: []byte(`{"id":"bar","four":4}`),
+			RawState: &tfprotov5.RawState{
+				JSON: []byte(`{"id":"bar","four":4}`),
 			},
 		},
 	}
@@ -427,7 +474,7 @@ func TestUpgradeState_flatmapState(t *testing.T) {
 				t.Fatal("error")
 			}
 
-			val, err := msgpack.Unmarshal(resp.UpgradedState.Msgpack, r.CoreConfigSchema().ImpliedType())
+			val, err := msgpack.Unmarshal(resp.UpgradedState.MsgPack, r.CoreConfigSchema().ImpliedType())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -446,27 +493,27 @@ func TestUpgradeState_flatmapState(t *testing.T) {
 }
 
 func TestUpgradeState_flatmapStateMissingMigrateState(t *testing.T) {
-	r := &schema.Resource{
+	r := &Resource{
 		SchemaVersion: 1,
-		Schema: map[string]*schema.Schema{
+		Schema: map[string]*Schema{
 			"one": {
-				Type:     schema.TypeInt,
+				Type:     TypeInt,
 				Required: true,
 			},
 		},
 	}
 
-	server := NewGRPCProviderServer(&schema.Provider{
-		ResourcesMap: map[string]*schema.Resource{
+	server := NewGRPCProviderServer(&Provider{
+		ResourcesMap: map[string]*Resource{
 			"test": r,
 		},
 	})
 
-	testReqs := []*proto.UpgradeResourceState_Request{
+	testReqs := []*tfprotov5.UpgradeResourceStateRequest{
 		{
 			TypeName: "test",
 			Version:  0,
-			RawState: &proto.RawState{
+			RawState: &tfprotov5.RawState{
 				Flatmap: map[string]string{
 					"id":  "bar",
 					"one": "1",
@@ -476,7 +523,7 @@ func TestUpgradeState_flatmapStateMissingMigrateState(t *testing.T) {
 		{
 			TypeName: "test",
 			Version:  1,
-			RawState: &proto.RawState{
+			RawState: &tfprotov5.RawState{
 				Flatmap: map[string]string{
 					"id":  "bar",
 					"one": "1",
@@ -486,8 +533,8 @@ func TestUpgradeState_flatmapStateMissingMigrateState(t *testing.T) {
 		{
 			TypeName: "test",
 			Version:  1,
-			RawState: &proto.RawState{
-				Json: []byte(`{"id":"bar","one":1}`),
+			RawState: &tfprotov5.RawState{
+				JSON: []byte(`{"id":"bar","one":1}`),
 			},
 		},
 	}
@@ -506,7 +553,7 @@ func TestUpgradeState_flatmapStateMissingMigrateState(t *testing.T) {
 				t.Fatal("error")
 			}
 
-			val, err := msgpack.Unmarshal(resp.UpgradedState.Msgpack, r.CoreConfigSchema().ImpliedType())
+			val, err := msgpack.Unmarshal(resp.UpgradedState.MsgPack, r.CoreConfigSchema().ImpliedType())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -524,18 +571,18 @@ func TestUpgradeState_flatmapStateMissingMigrateState(t *testing.T) {
 }
 
 func TestPlanResourceChange(t *testing.T) {
-	r := &schema.Resource{
+	r := &Resource{
 		SchemaVersion: 4,
-		Schema: map[string]*schema.Schema{
+		Schema: map[string]*Schema{
 			"foo": {
-				Type:     schema.TypeInt,
+				Type:     TypeInt,
 				Optional: true,
 			},
 		},
 	}
 
-	server := NewGRPCProviderServer(&schema.Provider{
-		ResourcesMap: map[string]*schema.Resource{
+	server := NewGRPCProviderServer(&Provider{
+		ResourcesMap: map[string]*Resource{
 			"test": r,
 		},
 	})
@@ -559,13 +606,13 @@ func TestPlanResourceChange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testReq := &proto.PlanResourceChange_Request{
+	testReq := &tfprotov5.PlanResourceChangeRequest{
 		TypeName: "test",
-		PriorState: &proto.DynamicValue{
-			Msgpack: priorState,
+		PriorState: &tfprotov5.DynamicValue{
+			MsgPack: priorState,
 		},
-		ProposedNewState: &proto.DynamicValue{
-			Msgpack: proposedState,
+		ProposedNewState: &tfprotov5.DynamicValue{
+			MsgPack: proposedState,
 		},
 	}
 
@@ -574,7 +621,7 @@ func TestPlanResourceChange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plannedStateVal, err := msgpack.Unmarshal(resp.PlannedState.Msgpack, schema.ImpliedType())
+	plannedStateVal, err := msgpack.Unmarshal(resp.PlannedState.MsgPack, schema.ImpliedType())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -584,23 +631,88 @@ func TestPlanResourceChange(t *testing.T) {
 	}
 }
 
-func TestApplyResourceChange(t *testing.T) {
-	r := &schema.Resource{
-		SchemaVersion: 4,
-		Schema: map[string]*schema.Schema{
+func TestPlanResourceChange_bigint(t *testing.T) {
+	r := &Resource{
+		UseJSONNumber: true,
+		Schema: map[string]*Schema{
 			"foo": {
-				Type:     schema.TypeInt,
+				Type:     TypeInt,
+				Required: true,
+			},
+		},
+	}
+
+	server := NewGRPCProviderServer(&Provider{
+		ResourcesMap: map[string]*Resource{
+			"test": r,
+		},
+	})
+
+	schema := r.CoreConfigSchema()
+	priorState, err := msgpack.Marshal(cty.NullVal(schema.ImpliedType()), schema.ImpliedType())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	proposedVal := cty.ObjectVal(map[string]cty.Value{
+		"id":  cty.UnknownVal(cty.String),
+		"foo": cty.MustParseNumberVal("7227701560655103598"),
+	})
+	proposedState, err := msgpack.Marshal(proposedVal, schema.ImpliedType())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testReq := &tfprotov5.PlanResourceChangeRequest{
+		TypeName: "test",
+		PriorState: &tfprotov5.DynamicValue{
+			MsgPack: priorState,
+		},
+		ProposedNewState: &tfprotov5.DynamicValue{
+			MsgPack: proposedState,
+		},
+	}
+
+	resp, err := server.PlanResourceChange(context.Background(), testReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plannedStateVal, err := msgpack.Unmarshal(resp.PlannedState.MsgPack, schema.ImpliedType())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !cmp.Equal(proposedVal, plannedStateVal, valueComparer) {
+		t.Fatal(cmp.Diff(proposedVal, plannedStateVal, valueComparer))
+	}
+
+	plannedStateFoo, acc := plannedStateVal.GetAttr("foo").AsBigFloat().Int64()
+	if acc != big.Exact {
+		t.Fatalf("Expected exact accuracy, got %s", acc)
+	}
+	if plannedStateFoo != 7227701560655103598 {
+		t.Fatalf("Expected %d, got %d, this represents a loss of precision in planning large numbers", 7227701560655103598, plannedStateFoo)
+	}
+}
+
+func TestApplyResourceChange(t *testing.T) {
+	r := &Resource{
+		SchemaVersion: 4,
+		Schema: map[string]*Schema{
+			"foo": {
+				Type:     TypeInt,
 				Optional: true,
 			},
 		},
-		CreateContext: func(_ context.Context, rd *schema.ResourceData, _ interface{}) diag.Diagnostics {
+		CreateContext: func(_ context.Context, rd *ResourceData, _ interface{}) diag.Diagnostics {
 			rd.SetId("bar")
 			return nil
 		},
 	}
 
-	server := NewGRPCProviderServer(&schema.Provider{
-		ResourcesMap: map[string]*schema.Resource{
+	server := NewGRPCProviderServer(&Provider{
+		ResourcesMap: map[string]*Resource{
 			"test": r,
 		},
 	})
@@ -624,13 +736,13 @@ func TestApplyResourceChange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testReq := &proto.ApplyResourceChange_Request{
+	testReq := &tfprotov5.ApplyResourceChangeRequest{
 		TypeName: "test",
-		PriorState: &proto.DynamicValue{
-			Msgpack: priorState,
+		PriorState: &tfprotov5.DynamicValue{
+			MsgPack: priorState,
 		},
-		PlannedState: &proto.DynamicValue{
-			Msgpack: plannedState,
+		PlannedState: &tfprotov5.DynamicValue{
+			MsgPack: plannedState,
 		},
 	}
 
@@ -639,7 +751,7 @@ func TestApplyResourceChange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	newStateVal, err := msgpack.Unmarshal(resp.NewState.Msgpack, schema.ImpliedType())
+	newStateVal, err := msgpack.Unmarshal(resp.NewState.MsgPack, schema.ImpliedType())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -650,19 +762,89 @@ func TestApplyResourceChange(t *testing.T) {
 	}
 }
 
+func TestApplyResourceChange_bigint(t *testing.T) {
+	r := &Resource{
+		UseJSONNumber: true,
+		Schema: map[string]*Schema{
+			"foo": {
+				Type:     TypeInt,
+				Required: true,
+			},
+		},
+		CreateContext: func(_ context.Context, rd *ResourceData, _ interface{}) diag.Diagnostics {
+			rd.SetId("bar")
+			return nil
+		},
+	}
+
+	server := NewGRPCProviderServer(&Provider{
+		ResourcesMap: map[string]*Resource{
+			"test": r,
+		},
+	})
+
+	schema := r.CoreConfigSchema()
+	priorState, err := msgpack.Marshal(cty.NullVal(schema.ImpliedType()), schema.ImpliedType())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plannedVal := cty.ObjectVal(map[string]cty.Value{
+		"id":  cty.UnknownVal(cty.String),
+		"foo": cty.MustParseNumberVal("7227701560655103598"),
+	})
+	plannedState, err := msgpack.Marshal(plannedVal, schema.ImpliedType())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testReq := &tfprotov5.ApplyResourceChangeRequest{
+		TypeName: "test",
+		PriorState: &tfprotov5.DynamicValue{
+			MsgPack: priorState,
+		},
+		PlannedState: &tfprotov5.DynamicValue{
+			MsgPack: plannedState,
+		},
+	}
+
+	resp, err := server.ApplyResourceChange(context.Background(), testReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newStateVal, err := msgpack.Unmarshal(resp.NewState.MsgPack, schema.ImpliedType())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	id := newStateVal.GetAttr("id").AsString()
+	if id != "bar" {
+		t.Fatalf("incorrect final state: %#v\n", newStateVal)
+	}
+
+	foo, acc := newStateVal.GetAttr("foo").AsBigFloat().Int64()
+	if acc != big.Exact {
+		t.Fatalf("Expected exact accuracy, got %s", acc)
+	}
+	if foo != 7227701560655103598 {
+		t.Fatalf("Expected %d, got %d, this represents a loss of precision in applying large numbers", 7227701560655103598, foo)
+	}
+}
+
 func TestPrepareProviderConfig(t *testing.T) {
 	for _, tc := range []struct {
 		Name         string
-		Schema       map[string]*schema.Schema
+		Schema       map[string]*Schema
 		ConfigVal    cty.Value
 		ExpectError  string
 		ExpectConfig cty.Value
 	}{
 		{
 			Name: "test prepare",
-			Schema: map[string]*schema.Schema{
+			Schema: map[string]*Schema{
 				"foo": {
-					Type:     schema.TypeString,
+					Type:     TypeString,
 					Optional: true,
 				},
 			},
@@ -675,9 +857,9 @@ func TestPrepareProviderConfig(t *testing.T) {
 		},
 		{
 			Name: "test default",
-			Schema: map[string]*schema.Schema{
+			Schema: map[string]*Schema{
 				"foo": {
-					Type:     schema.TypeString,
+					Type:     TypeString,
 					Optional: true,
 					Default:  "default",
 				},
@@ -691,9 +873,9 @@ func TestPrepareProviderConfig(t *testing.T) {
 		},
 		{
 			Name: "test defaultfunc",
-			Schema: map[string]*schema.Schema{
+			Schema: map[string]*Schema{
 				"foo": {
-					Type:     schema.TypeString,
+					Type:     TypeString,
 					Optional: true,
 					DefaultFunc: func() (interface{}, error) {
 						return "defaultfunc", nil
@@ -709,9 +891,9 @@ func TestPrepareProviderConfig(t *testing.T) {
 		},
 		{
 			Name: "test default required",
-			Schema: map[string]*schema.Schema{
+			Schema: map[string]*Schema{
 				"foo": {
-					Type:     schema.TypeString,
+					Type:     TypeString,
 					Required: true,
 					DefaultFunc: func() (interface{}, error) {
 						return "defaultfunc", nil
@@ -727,9 +909,9 @@ func TestPrepareProviderConfig(t *testing.T) {
 		},
 		{
 			Name: "test incorrect type",
-			Schema: map[string]*schema.Schema{
+			Schema: map[string]*Schema{
 				"foo": {
-					Type:     schema.TypeString,
+					Type:     TypeString,
 					Required: true,
 				},
 			},
@@ -742,9 +924,9 @@ func TestPrepareProviderConfig(t *testing.T) {
 		},
 		{
 			Name: "test incorrect default type",
-			Schema: map[string]*schema.Schema{
+			Schema: map[string]*Schema{
 				"foo": {
-					Type:     schema.TypeString,
+					Type:     TypeString,
 					Optional: true,
 					Default:  true,
 				},
@@ -758,9 +940,9 @@ func TestPrepareProviderConfig(t *testing.T) {
 		},
 		{
 			Name: "test incorrect default bool type",
-			Schema: map[string]*schema.Schema{
+			Schema: map[string]*Schema{
 				"foo": {
-					Type:     schema.TypeBool,
+					Type:     TypeBool,
 					Optional: true,
 					Default:  "",
 				},
@@ -774,20 +956,20 @@ func TestPrepareProviderConfig(t *testing.T) {
 		},
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
-			server := NewGRPCProviderServer(&schema.Provider{
+			server := NewGRPCProviderServer(&Provider{
 				Schema: tc.Schema,
 			})
 
-			block := schema.InternalMap(tc.Schema).CoreConfigSchema()
+			block := InternalMap(tc.Schema).CoreConfigSchema()
 
 			rawConfig, err := msgpack.Marshal(tc.ConfigVal, block.ImpliedType())
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			testReq := &proto.PrepareProviderConfig_Request{
-				Config: &proto.DynamicValue{
-					Msgpack: rawConfig,
+			testReq := &tfprotov5.PrepareProviderConfigRequest{
+				Config: &tfprotov5.DynamicValue{
+					MsgPack: rawConfig,
 				},
 			}
 
@@ -807,12 +989,12 @@ func TestPrepareProviderConfig(t *testing.T) {
 
 			// we should have no errors past this point
 			for _, d := range resp.Diagnostics {
-				if d.Severity == proto.Diagnostic_ERROR {
+				if d.Severity == tfprotov5.DiagnosticSeverityError {
 					t.Fatal(resp.Diagnostics)
 				}
 			}
 
-			val, err := msgpack.Unmarshal(resp.PreparedConfig.Msgpack, block.ImpliedType())
+			val, err := msgpack.Unmarshal(resp.PreparedConfig.MsgPack, block.ImpliedType())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -825,17 +1007,17 @@ func TestPrepareProviderConfig(t *testing.T) {
 }
 
 func TestGetSchemaTimeouts(t *testing.T) {
-	r := &schema.Resource{
+	r := &Resource{
 		SchemaVersion: 4,
-		Timeouts: &schema.ResourceTimeout{
-			Create:  schema.DefaultTimeout(time.Second),
-			Read:    schema.DefaultTimeout(2 * time.Second),
-			Update:  schema.DefaultTimeout(3 * time.Second),
-			Default: schema.DefaultTimeout(10 * time.Second),
+		Timeouts: &ResourceTimeout{
+			Create:  DefaultTimeout(time.Second),
+			Read:    DefaultTimeout(2 * time.Second),
+			Update:  DefaultTimeout(3 * time.Second),
+			Default: DefaultTimeout(10 * time.Second),
 		},
-		Schema: map[string]*schema.Schema{
+		Schema: map[string]*Schema{
 			"foo": {
-				Type:     schema.TypeInt,
+				Type:     TypeInt,
 				Optional: true,
 			},
 		},
@@ -1354,23 +1536,23 @@ func TestValidateNulls(t *testing.T) {
 }
 
 func TestStopContext_grpc(t *testing.T) {
-	r := &schema.Resource{
+	r := &Resource{
 		SchemaVersion: 4,
-		Schema: map[string]*schema.Schema{
+		Schema: map[string]*Schema{
 			"foo": {
-				Type:     schema.TypeInt,
+				Type:     TypeInt,
 				Optional: true,
 			},
 		},
-		CreateContext: func(ctx context.Context, rd *schema.ResourceData, _ interface{}) diag.Diagnostics {
+		CreateContext: func(ctx context.Context, rd *ResourceData, _ interface{}) diag.Diagnostics {
 			<-ctx.Done()
 			rd.SetId("bar")
 			return nil
 		},
 	}
 
-	server := NewGRPCProviderServer(&schema.Provider{
-		ResourcesMap: map[string]*schema.Resource{
+	server := NewGRPCProviderServer(&Provider{
+		ResourcesMap: map[string]*Resource{
 			"test": r,
 		},
 	})
@@ -1392,13 +1574,13 @@ func TestStopContext_grpc(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testReq := &proto.ApplyResourceChange_Request{
+	testReq := &tfprotov5.ApplyResourceChangeRequest{
 		TypeName: "test",
-		PriorState: &proto.DynamicValue{
-			Msgpack: priorState,
+		PriorState: &tfprotov5.DynamicValue{
+			MsgPack: priorState,
 		},
-		PlannedState: &proto.DynamicValue{
-			Msgpack: plannedState,
+		PlannedState: &tfprotov5.DynamicValue{
+			MsgPack: plannedState,
 		},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1420,23 +1602,23 @@ func TestStopContext_grpc(t *testing.T) {
 }
 
 func TestStopContext_stop(t *testing.T) {
-	r := &schema.Resource{
+	r := &Resource{
 		SchemaVersion: 4,
-		Schema: map[string]*schema.Schema{
+		Schema: map[string]*Schema{
 			"foo": {
-				Type:     schema.TypeInt,
+				Type:     TypeInt,
 				Optional: true,
 			},
 		},
-		CreateContext: func(ctx context.Context, rd *schema.ResourceData, _ interface{}) diag.Diagnostics {
+		CreateContext: func(ctx context.Context, rd *ResourceData, _ interface{}) diag.Diagnostics {
 			<-ctx.Done()
 			rd.SetId("bar")
 			return nil
 		},
 	}
 
-	server := NewGRPCProviderServer(&schema.Provider{
-		ResourcesMap: map[string]*schema.Resource{
+	server := NewGRPCProviderServer(&Provider{
+		ResourcesMap: map[string]*Resource{
 			"test": r,
 		},
 	})
@@ -1458,13 +1640,13 @@ func TestStopContext_stop(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testReq := &proto.ApplyResourceChange_Request{
+	testReq := &tfprotov5.ApplyResourceChangeRequest{
 		TypeName: "test",
-		PriorState: &proto.DynamicValue{
-			Msgpack: priorState,
+		PriorState: &tfprotov5.DynamicValue{
+			MsgPack: priorState,
 		},
-		PlannedState: &proto.DynamicValue{
-			Msgpack: plannedState,
+		PlannedState: &tfprotov5.DynamicValue{
+			MsgPack: plannedState,
 		},
 	}
 
@@ -1476,7 +1658,7 @@ func TestStopContext_stop(t *testing.T) {
 		}
 		close(doneCh)
 	}()
-	server.Stop(context.Background(), &proto.Stop_Request{})
+	server.StopProvider(context.Background(), &tfprotov5.StopProviderRequest{})
 	select {
 	case <-doneCh:
 	case <-time.After(5 * time.Second):
@@ -1485,23 +1667,23 @@ func TestStopContext_stop(t *testing.T) {
 }
 
 func TestStopContext_stopReset(t *testing.T) {
-	r := &schema.Resource{
+	r := &Resource{
 		SchemaVersion: 4,
-		Schema: map[string]*schema.Schema{
+		Schema: map[string]*Schema{
 			"foo": {
-				Type:     schema.TypeInt,
+				Type:     TypeInt,
 				Optional: true,
 			},
 		},
-		CreateContext: func(ctx context.Context, rd *schema.ResourceData, _ interface{}) diag.Diagnostics {
+		CreateContext: func(ctx context.Context, rd *ResourceData, _ interface{}) diag.Diagnostics {
 			<-ctx.Done()
 			rd.SetId("bar")
 			return nil
 		},
 	}
 
-	server := NewGRPCProviderServer(&schema.Provider{
-		ResourcesMap: map[string]*schema.Resource{
+	server := NewGRPCProviderServer(&Provider{
+		ResourcesMap: map[string]*Resource{
 			"test": r,
 		},
 	})
@@ -1523,13 +1705,13 @@ func TestStopContext_stopReset(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testReq := &proto.ApplyResourceChange_Request{
+	testReq := &tfprotov5.ApplyResourceChangeRequest{
 		TypeName: "test",
-		PriorState: &proto.DynamicValue{
-			Msgpack: priorState,
+		PriorState: &tfprotov5.DynamicValue{
+			MsgPack: priorState,
 		},
-		PlannedState: &proto.DynamicValue{
-			Msgpack: plannedState,
+		PlannedState: &tfprotov5.DynamicValue{
+			MsgPack: plannedState,
 		},
 	}
 
@@ -1545,7 +1727,7 @@ func TestStopContext_stopReset(t *testing.T) {
 		}
 		close(d)
 	}(doneCh)
-	server.Stop(context.Background(), &proto.Stop_Request{})
+	server.StopProvider(context.Background(), &tfprotov5.StopProviderRequest{})
 	select {
 	case <-doneCh:
 	case <-time.After(5 * time.Second):
@@ -1564,7 +1746,7 @@ func TestStopContext_stopReset(t *testing.T) {
 		}
 		close(d)
 	}(doneCh)
-	server.Stop(context.Background(), &proto.Stop_Request{})
+	server.StopProvider(context.Background(), &tfprotov5.StopProviderRequest{})
 	select {
 	case <-doneCh:
 	case <-time.After(5 * time.Second):

@@ -8,13 +8,19 @@ Terraform itself is a tool for building, changing, and versioning infrastructure
 
 ## Terraform CLI Compatibility
 
-| Terraform CLI | SDK v1.x | SDK v2.x |
-|---|---|---|
-| 0.11 | Yes | No |
-| 0.12 | Yes* | Yes |
-| 0.13 | Yes* | Yes |
+Terraform 0.12.0 or later is needed for version 2.0.0 and later of the Plugin SDK.
 
-_* SDK v1.x supports both Terraform 0.12 and 0.13, but in order to maintain compatibility with Terraform 0.11, it cannot take advantage of new features that are only available in newer versions._
+When running provider tests, Terraform 0.12.26 or later is needed for version 2.0.0 and later of the Plugin SDK. Users can still use any version after 0.12.0.
+
+## Go Compatibility
+
+The Terraform Plugin SDK is built in Go, and uses the [support policy](https://golang.org/doc/devel/release.html#policy) of Go as its support policy. The two latest major releases of Go are supported by the SDK.
+
+Currently, that means Go **1.14** or later must be used when building a provider with the SDK.
+
+## Getting Started
+
+See the [Call APIs with Terraform Providers](https://learn.hashicorp.com/collections/terraform/providers) guide on [learn.hashicorp.com](https://learn.hashicorp.com) for a guided tour of provider development.
 
 ## Documentation
 
@@ -48,6 +54,10 @@ See [Extending Terraform](https://www.terraform.io/docs/extend/index.html) secti
 ## Migrating to SDK v1 from built-in SDK
 
 Migrating to the standalone SDK v1 is covered on the [Plugin SDK section](https://www.terraform.io/docs/extend/plugin-sdk.html) of the website.
+
+## Migrating to SDK v2 from SDK v1
+
+Migrating to the v2 release of the SDK is covered in the [v2 Upgrade Guide](https://www.terraform.io/docs/extend/guides/v2-upgrade-guide.html) of the website.
 
 ## Versioning
 
