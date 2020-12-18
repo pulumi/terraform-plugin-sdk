@@ -304,7 +304,7 @@ func (s *GRPCProviderServer) UpgradeResourceState(ctx context.Context, req *tfpr
 	}
 
 	// The provider isn't required to clean out removed fields
-	s.removeAttributes(jsonMap, schemaBlock.ImpliedType())
+	RemoveAttributes(jsonMap, schemaBlock.ImpliedType())
 
 	// now we need to turn the state into the default json representation, so
 	// that it can be re-decoded using the actual schema.
@@ -336,12 +336,16 @@ func (s *GRPCProviderServer) UpgradeResourceState(ctx context.Context, req *tfpr
 	return resp, nil
 }
 
-// upgradeFlatmapState takes a legacy flatmap state, upgrades it using Migrate
+func (s *GRPCProviderServer) upgradeFlatmapState(ctx context.Context, version int, m map[string]string, res *Resource) (map[string]interface{}, int, error) {
+	return UpgradeFlatmapState(ctx, version, m, res, s.provider.Meta())
+}
+
+// UpgradeFlatmapState takes a legacy flatmap state, upgrades it using Migrate
 // state if necessary, and converts it to the new JSON state format decoded as a
 // map[string]interface{}.
 // upgradeFlatmapState returns the json map along with the corresponding schema
 // version.
-func (s *GRPCProviderServer) upgradeFlatmapState(ctx context.Context, version int, m map[string]string, res *Resource) (map[string]interface{}, int, error) {
+func UpgradeFlatmapState(ctx context.Context, version int, m map[string]string, res *Resource, meta interface{}) (map[string]interface{}, int, error) {
 	// this will be the version we've upgraded so, defaulting to the given
 	// version in case no migration was called.
 	upgradedVersion := version
@@ -413,7 +417,7 @@ func (s *GRPCProviderServer) upgradeFlatmapState(ctx context.Context, version in
 	return jsonMap, upgradedVersion, err
 }
 
-func (s *GRPCProviderServer) upgradeJSONState(ctx context.Context, version int, m map[string]interface{}, res *Resource) (map[string]interface{}, error) {
+func UpgradeJSONState(ctx context.Context, version int, m map[string]interface{}, res *Resource, meta interface{}) (map[string]interface{}, error) {
 	var err error
 
 	for _, upgrader := range res.StateUpgraders {
@@ -431,7 +435,7 @@ func (s *GRPCProviderServer) upgradeJSONState(ctx context.Context, version int, 
 	return m, nil
 }
 
-func (s *GRPCProviderServer) upgradeJSONState(ctx context.Context, version int, m map[string]interface{}, res *schema.Resource) (map[string]interface{}, error) {
+func (s *GRPCProviderServer) upgradeJSONState(ctx context.Context, version int, m map[string]interface{}, res *Resource) (map[string]interface{}, error) {
 	return UpgradeJSONState(ctx, version, m, res, s.provider.Meta())
 }
 
