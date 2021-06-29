@@ -16,7 +16,7 @@ When running provider tests, Terraform 0.12.26 or later is needed for version 2.
 
 The Terraform Plugin SDK is built in Go, and uses the [support policy](https://golang.org/doc/devel/release.html#policy) of Go as its support policy. The two latest major releases of Go are supported by the SDK.
 
-Currently, that means Go **1.14** or later must be used when building a provider with the SDK.
+Currently, that means Go **1.15** or later must be used when building a provider with the SDK.
 
 ## Getting Started
 
@@ -53,7 +53,7 @@ See [Extending Terraform](https://www.terraform.io/docs/extend/index.html) secti
 
 ## Migrating to SDK v1 from built-in SDK
 
-Migrating to the standalone SDK v1 is covered on the [Plugin SDK section](https://www.terraform.io/docs/extend/plugin-sdk.html) of the website.
+Migrating to the standalone SDK v1 is covered on the [Plugin SDK section](https://www.terraform.io/docs/extend/guides/v1-upgrade-guide.html) of the website.
 
 ## Migrating to SDK v2 from SDK v1
 
@@ -61,12 +61,12 @@ Migrating to the v2 release of the SDK is covered in the [v2 Upgrade Guide](http
 
 ## Versioning
 
-The Terraform Plugin SDK is a [Go module](https://github.com/golang/go/wiki/Modules) versioned using [semantic versioning](https://semver.org/).
+The Terraform Plugin SDK is a [Go module](https://github.com/golang/go/wiki/Modules) versioned using [semantic versioning](https://semver.org/). See [SUPPORT.md](https://github.com/hashicorp/terraform-plugin-sdk/blob/main/SUPPORT.md) for information on our support policies.
 
 ## Contributing
 
-See [`.github/CONTRIBUTING.md`](https://github.com/hashicorp/terraform-plugin-sdk/blob/master/.github/CONTRIBUTING.md)
+See [`.github/CONTRIBUTING.md`](https://github.com/hashicorp/terraform-plugin-sdk/blob/main/.github/CONTRIBUTING.md)
 
 ## License
 
-[Mozilla Public License v2.0](https://github.com/hashicorp/terraform-plugin-sdk/blob/master/LICENSE)
+[Mozilla Public License v2.0](https://github.com/hashicorp/terraform-plugin-sdk/blob/main/LICENSE)

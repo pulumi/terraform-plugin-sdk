@@ -1,19 +1,76 @@
-# 2.4.0 (Unreleased)
+# 2.7.0 (June 25, 2021)
+
+ENHANCEMENTS:
+
+* Added `ProtoV6ProviderFactories` to `TestCase`, so protocol version 6 providers can be used in acceptance tests ([#761](https://github.com/hashicorp/terraform-plugin-sdk/issues/761))
+* Made SDK-generated diagnostics clearer and more consistent ([#755](https://github.com/hashicorp/terraform-plugin-sdk/issues/755))
+* Upgraded to use terraform-exec v0.14.0, which is required for acceptance test compatibility with Terraform v1.0.1 ([#775](https://github.com/hashicorp/terraform-plugin-sdk/issues/775))
+
+# 2.6.1 (April 23, 2021)
+
+BUG FIXES:
+
+* Updated the GPG key used to verify Terraform installs in response to the [Terraform GPG key rotation](https://discuss.hashicorp.com/t/hcsec-2021-12-codecov-security-event-and-hashicorp-gpg-key-exposure/23512). ([#750](https://github.com/hashicorp/terraform-plugin-sdk/issues/750))
+
+# 2.6.0 (April 21, 2021)
+
+ENHANCEMENTS:
+
+* Made TF_ACC_TERRAFORM_VERSION more permissive, accepting values in either vX.Y.Z or X.Y.Z formats. ([#731](https://github.com/hashicorp/terraform-plugin-sdk/issues/731))
+* Upgraded to use terraform-plugin-go v0.3.0 ([#739](https://github.com/hashicorp/terraform-plugin-sdk/issues/739))
+
+# 2.5.0 (March 24, 2021)
 
 ENHANCEMENTS
 
-* Support `Unwrap` on SDK errors [GH-647]
-* Allow for `nil` errors in `diag.FromErr` [GH-623]
-* Added `validation.ToDiagFunc` helper to translate legacy validation functions into Diagnostics-aware validation functions. [GH-611]
-* Disable Checkpoint network connections during acceptance testing unless a Terraform binary needs to be installed. [GH-663]
+* Added the ability to opt out of context timeouts in CRUD functions ([#723](https://github.com/hashicorp/terraform-plugin-sdk/issues/723))
+
+# 2.4.4 (February 24, 2021)
+
+NOTES
+
+As per our Go version support policy, we now require Go 1.15 or higher to use the SDK.
 
 BUG FIXES
 
-* Check for `nil` errors prior to invoking `ErrorCheck` [GH-646]
-* More reliable handling of logging [GH-639]
-* Modified error text to make golint and go vet happy when a non-empty plan is found in testing and an empty plan was expected [GH-596]
-* Add `UseJSONNumber` to `helper/schema.Resource` to make it possible to represent large numbers precisely. Setting to `true` will make numbers appear as `json.Number` in `StateUpgrader`s instead of as `float64`. [GH-662]
-* Fix logs sometimes appearing in test output when running acceptance tests. [GH-665]
+* Resolved bug where Diagnostics wouldn't get associated with their configuration context in user output. ([#696](https://github.com/hashicorp/terraform-plugin-sdk/issues/696))
+
+# 2.4.3 (February 10, 2021)
+
+BUG FIXES
+
+* Make acceptance testing framework compatible with Terraform 0.15 ([#694](https://github.com/hashicorp/terraform-plugin-sdk/issues/694))
+
+# 2.4.2 (January 27, 2021)
+
+BUG FIXES
+
+* Don't panic in very specific circumstances involving CustomizeDiff and empty strings in the config ([#686](https://github.com/hashicorp/terraform-plugin-sdk/issues/686))
+
+# 2.4.1 (January 20, 2021)
+
+BUG FIXES
+
+* Don't panic during assertions when testing sets with varying levels of nesting ([#648](https://github.com/hashicorp/terraform-plugin-sdk/issues/648))
+* Prevent panics when sending Ctrl-C to Terraform ([#674](https://github.com/hashicorp/terraform-plugin-sdk/issues/674))
+* Make the error message when a "required" block is missing clearer, identifying the block in question ([#672](https://github.com/hashicorp/terraform-plugin-sdk/issues/672))
+
+# 2.4.0 (December 19, 2020)
+
+ENHANCEMENTS
+
+* Support `Unwrap` on SDK errors ([#647](https://github.com/hashicorp/terraform-plugin-sdk/issues/647))
+* Allow for `nil` errors in `diag.FromErr` ([#623](https://github.com/hashicorp/terraform-plugin-sdk/issues/623))
+* Added `validation.ToDiagFunc` helper to translate legacy validation functions into Diagnostics-aware validation functions. ([#611](https://github.com/hashicorp/terraform-plugin-sdk/issues/611))
+* Disable Checkpoint network connections during acceptance testing unless a Terraform binary needs to be installed. ([#663](https://github.com/hashicorp/terraform-plugin-sdk/issues/663))
+
+BUG FIXES
+
+* Check for `nil` errors prior to invoking `ErrorCheck` ([#646](https://github.com/hashicorp/terraform-plugin-sdk/issues/646))
+* More reliable handling of logging ([#639](https://github.com/hashicorp/terraform-plugin-sdk/issues/639))
+* Modified error text to make golint and go vet happy when a non-empty plan is found in testing and an empty plan was expected ([#596](https://github.com/hashicorp/terraform-plugin-sdk/issues/596))
+* Add `UseJSONNumber` to `helper/schema.Resource` to make it possible to represent large numbers precisely. Setting to `true` will make numbers appear as `json.Number` in `StateUpgrader`s instead of as `float64`. ([#662](https://github.com/hashicorp/terraform-plugin-sdk/issues/662))
+* Fix logs sometimes appearing in test output when running acceptance tests. ([#665](https://github.com/hashicorp/terraform-plugin-sdk/issues/665))
 
 NOTES
 
