@@ -2,6 +2,7 @@ package schema
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -552,6 +553,17 @@ func TestPlanResourceChange(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	config, err := schema.CoerceValue(cty.ObjectVal(map[string]cty.Value{
+		"id": cty.NullVal(cty.String),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configBytes, err := msgpack.Marshal(config, schema.ImpliedType())
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	testReq := &tfprotov5.PlanResourceChangeRequest{
 		TypeName: "test",
 		PriorState: &tfprotov5.DynamicValue{
@@ -559,6 +571,9 @@ func TestPlanResourceChange(t *testing.T) {
 		},
 		ProposedNewState: &tfprotov5.DynamicValue{
 			MsgPack: proposedState,
+		},
+		Config: &tfprotov5.DynamicValue{
+			MsgPack: configBytes,
 		},
 	}
 
@@ -630,6 +645,31 @@ func TestApplyResourceChange(t *testing.T) {
 				},
 			},
 		},
+		{
+			Description: "Create_cty",
+			TestResource: &Resource{
+				SchemaVersion: 4,
+				Schema: map[string]*Schema{
+					"foo": {
+						Type:     TypeInt,
+						Optional: true,
+					},
+				},
+				CreateWithoutTimeout: func(_ context.Context, rd *ResourceData, _ interface{}) diag.Diagnostics {
+					if rd.GetRawConfig().IsNull() {
+						return diag.FromErr(errors.New("null raw config"))
+					}
+					if !rd.GetRawState().IsNull() {
+						return diag.FromErr(fmt.Errorf("non-null raw state: %s", rd.GetRawState().GoString()))
+					}
+					if rd.GetRawPlan().IsNull() {
+						return diag.FromErr(errors.New("null raw plan"))
+					}
+					rd.SetId("bar")
+					return nil
+				},
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -660,6 +700,17 @@ func TestApplyResourceChange(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			config, err := schema.CoerceValue(cty.ObjectVal(map[string]cty.Value{
+				"id": cty.NullVal(cty.String),
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			configBytes, err := msgpack.Marshal(config, schema.ImpliedType())
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			testReq := &tfprotov5.ApplyResourceChangeRequest{
 				TypeName: "test",
 				PriorState: &tfprotov5.DynamicValue{
@@ -667,6 +718,9 @@ func TestApplyResourceChange(t *testing.T) {
 				},
 				PlannedState: &tfprotov5.DynamicValue{
 					MsgPack: plannedState,
+				},
+				Config: &tfprotov5.DynamicValue{
+					MsgPack: configBytes,
 				},
 			}
 
@@ -1458,6 +1512,17 @@ func TestStopContext_grpc(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			config, err := schema.CoerceValue(cty.ObjectVal(map[string]cty.Value{
+				"id": cty.NullVal(cty.String),
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			configBytes, err := msgpack.Marshal(config, schema.ImpliedType())
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			testReq := &tfprotov5.ApplyResourceChangeRequest{
 				TypeName: "test",
 				PriorState: &tfprotov5.DynamicValue{
@@ -1465,6 +1530,9 @@ func TestStopContext_grpc(t *testing.T) {
 				},
 				PlannedState: &tfprotov5.DynamicValue{
 					MsgPack: plannedState,
+				},
+				Config: &tfprotov5.DynamicValue{
+					MsgPack: configBytes,
 				},
 			}
 			ctx, cancel := context.WithCancel(context.Background())
@@ -1559,6 +1627,17 @@ func TestStopContext_stop(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			config, err := schema.CoerceValue(cty.ObjectVal(map[string]cty.Value{
+				"id": cty.NullVal(cty.String),
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			configBytes, err := msgpack.Marshal(config, schema.ImpliedType())
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			testReq := &tfprotov5.ApplyResourceChangeRequest{
 				TypeName: "test",
 				PriorState: &tfprotov5.DynamicValue{
@@ -1566,6 +1645,9 @@ func TestStopContext_stop(t *testing.T) {
 				},
 				PlannedState: &tfprotov5.DynamicValue{
 					MsgPack: plannedState,
+				},
+				Config: &tfprotov5.DynamicValue{
+					MsgPack: configBytes,
 				},
 			}
 
@@ -1659,6 +1741,17 @@ func TestStopContext_stopReset(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			config, err := schema.CoerceValue(cty.ObjectVal(map[string]cty.Value{
+				"id": cty.NullVal(cty.String),
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			configBytes, err := msgpack.Marshal(config, schema.ImpliedType())
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			testReq := &tfprotov5.ApplyResourceChangeRequest{
 				TypeName: "test",
 				PriorState: &tfprotov5.DynamicValue{
@@ -1666,6 +1759,9 @@ func TestStopContext_stopReset(t *testing.T) {
 				},
 				PlannedState: &tfprotov5.DynamicValue{
 					MsgPack: plannedState,
+				},
+				Config: &tfprotov5.DynamicValue{
+					MsgPack: configBytes,
 				},
 			}
 
