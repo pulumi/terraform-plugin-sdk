@@ -1,3 +1,19 @@
+# 2.8.0 (September 24, 2021)
+
+NOTES:
+
+* Updated to [terraform-plugin-go v0.4.0](https://github.com/hashicorp/terraform-plugin-go/blob/main/CHANGELOG.md#040-september-24-2021). Users of terraform-plugin-mux will need to upgrade terraform-plugin-mux as well.
+
+ENHANCEMENTS:
+
+* Added experimental support for retrieving underlying raw protocol values from `helper/schema.ResourceData` and `helper/schema.ResourceDiff`, bypassing the shims. ([#802](https://github.com/hashicorp/terraform-plugin-sdk/issues/802))
+
+# 2.7.1 (August 31, 2021)
+
+BUG FIXES:
+
+* helper/schema: Ensure `Provider.ConfigureContextFunc` warning-only diagnostics are returned ([#791](https://github.com/hashicorp/terraform-plugin-sdk/issues/791))
+
 # 2.7.0 (June 25, 2021)
 
 ENHANCEMENTS:
