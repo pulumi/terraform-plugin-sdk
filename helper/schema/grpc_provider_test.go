@@ -82,7 +82,7 @@ func TestUpgradeState_jsonState(t *testing.T) {
 		},
 	}
 
-	resp, err := server.UpgradeResourceState(nil, req)
+	resp, err := server.UpgradeResourceState(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestUpgradeState_removedAttr(t *testing.T) {
 					JSON: []byte(tc.raw),
 				},
 			}
-			resp, err := server.UpgradeResourceState(nil, req)
+			resp, err := server.UpgradeResourceState(context.Background(), req)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -409,7 +409,7 @@ func TestUpgradeState_flatmapState(t *testing.T) {
 
 	for i, req := range testReqs {
 		t.Run(fmt.Sprintf("%d-%d", i, req.Version), func(t *testing.T) {
-			resp, err := server.UpgradeResourceState(nil, req)
+			resp, err := server.UpgradeResourceState(context.Background(), req)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -488,7 +488,7 @@ func TestUpgradeState_flatmapStateMissingMigrateState(t *testing.T) {
 
 	for i, req := range testReqs {
 		t.Run(fmt.Sprintf("%d-%d", i, req.Version), func(t *testing.T) {
-			resp, err := server.UpgradeResourceState(nil, req)
+			resp, err := server.UpgradeResourceState(context.Background(), req)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -742,6 +742,401 @@ func TestApplyResourceChange(t *testing.T) {
 	}
 }
 
+func TestReadDataSource(t *testing.T) {
+	t.Parallel()
+
+	testCases := map[string]struct {
+		server   *GRPCProviderServer
+		req      *tfprotov5.ReadDataSourceRequest
+		expected *tfprotov5.ReadDataSourceResponse
+	}{
+		"missing-set-id": {
+			server: NewGRPCProviderServer(&Provider{
+				DataSourcesMap: map[string]*Resource{
+					"test": {
+						SchemaVersion: 1,
+						Schema: map[string]*Schema{
+							"id": {
+								Type:     TypeString,
+								Computed: true,
+							},
+						},
+						ReadContext: func(ctx context.Context, d *ResourceData, meta interface{}) diag.Diagnostics {
+							return nil
+						},
+					},
+				},
+			}),
+			req: &tfprotov5.ReadDataSourceRequest{
+				TypeName: "test",
+				Config: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id": cty.String,
+						}),
+						cty.NullVal(cty.Object(map[string]cty.Type{
+							"id": cty.String,
+						})),
+					),
+				},
+			},
+			expected: &tfprotov5.ReadDataSourceResponse{
+				State: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id": cty.String,
+						}),
+						cty.ObjectVal(map[string]cty.Value{
+							"id": cty.NullVal(cty.String),
+						}),
+					),
+				},
+			},
+		},
+		"empty": {
+			server: NewGRPCProviderServer(&Provider{
+				DataSourcesMap: map[string]*Resource{
+					"test": {
+						SchemaVersion: 1,
+						Schema: map[string]*Schema{
+							"id": {
+								Type:     TypeString,
+								Computed: true,
+							},
+						},
+						ReadContext: func(ctx context.Context, d *ResourceData, meta interface{}) diag.Diagnostics {
+							d.SetId("test-id")
+							return nil
+						},
+					},
+				},
+			}),
+			req: &tfprotov5.ReadDataSourceRequest{
+				TypeName: "test",
+				Config: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.EmptyObject,
+						cty.NullVal(cty.EmptyObject),
+					),
+				},
+			},
+			expected: &tfprotov5.ReadDataSourceResponse{
+				State: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id": cty.String,
+						}),
+						cty.ObjectVal(map[string]cty.Value{
+							"id": cty.StringVal("test-id"),
+						}),
+					),
+				},
+			},
+		},
+		"null-object": {
+			server: NewGRPCProviderServer(&Provider{
+				DataSourcesMap: map[string]*Resource{
+					"test": {
+						SchemaVersion: 1,
+						Schema: map[string]*Schema{
+							"id": {
+								Type:     TypeString,
+								Computed: true,
+							},
+						},
+						ReadContext: func(ctx context.Context, d *ResourceData, meta interface{}) diag.Diagnostics {
+							d.SetId("test-id")
+							return nil
+						},
+					},
+				},
+			}),
+			req: &tfprotov5.ReadDataSourceRequest{
+				TypeName: "test",
+				Config: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id": cty.String,
+						}),
+						cty.NullVal(cty.Object(map[string]cty.Type{
+							"id": cty.String,
+						})),
+					),
+				},
+			},
+			expected: &tfprotov5.ReadDataSourceResponse{
+				State: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id": cty.String,
+						}),
+						cty.ObjectVal(map[string]cty.Value{
+							"id": cty.StringVal("test-id"),
+						}),
+					),
+				},
+			},
+		},
+		"computed-id": {
+			server: NewGRPCProviderServer(&Provider{
+				DataSourcesMap: map[string]*Resource{
+					"test": {
+						SchemaVersion: 1,
+						Schema: map[string]*Schema{
+							"id": {
+								Type:     TypeString,
+								Computed: true,
+							},
+						},
+						ReadContext: func(ctx context.Context, d *ResourceData, meta interface{}) diag.Diagnostics {
+							d.SetId("test-id")
+							return nil
+						},
+					},
+				},
+			}),
+			req: &tfprotov5.ReadDataSourceRequest{
+				TypeName: "test",
+				Config: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id": cty.String,
+						}),
+						cty.ObjectVal(map[string]cty.Value{
+							"id": cty.NullVal(cty.String),
+						}),
+					),
+				},
+			},
+			expected: &tfprotov5.ReadDataSourceResponse{
+				State: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id": cty.String,
+						}),
+						cty.ObjectVal(map[string]cty.Value{
+							"id": cty.StringVal("test-id"),
+						}),
+					),
+				},
+			},
+		},
+		"optional-computed-id": {
+			server: NewGRPCProviderServer(&Provider{
+				DataSourcesMap: map[string]*Resource{
+					"test": {
+						SchemaVersion: 1,
+						Schema: map[string]*Schema{
+							"id": {
+								Type:     TypeString,
+								Optional: true,
+								Computed: true,
+							},
+						},
+						ReadContext: func(ctx context.Context, d *ResourceData, meta interface{}) diag.Diagnostics {
+							d.SetId("test-id")
+							return nil
+						},
+					},
+				},
+			}),
+			req: &tfprotov5.ReadDataSourceRequest{
+				TypeName: "test",
+				Config: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id": cty.String,
+						}),
+						cty.ObjectVal(map[string]cty.Value{
+							"id": cty.NullVal(cty.String),
+						}),
+					),
+				},
+			},
+			expected: &tfprotov5.ReadDataSourceResponse{
+				State: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id": cty.String,
+						}),
+						cty.ObjectVal(map[string]cty.Value{
+							"id": cty.StringVal("test-id"),
+						}),
+					),
+				},
+			},
+		},
+		"optional-no-id": {
+			server: NewGRPCProviderServer(&Provider{
+				DataSourcesMap: map[string]*Resource{
+					"test": {
+						SchemaVersion: 1,
+						Schema: map[string]*Schema{
+							"test": {
+								Type:     TypeString,
+								Optional: true,
+							},
+						},
+						ReadContext: func(ctx context.Context, d *ResourceData, meta interface{}) diag.Diagnostics {
+							d.SetId("test-id")
+							return nil
+						},
+					},
+				},
+			}),
+			req: &tfprotov5.ReadDataSourceRequest{
+				TypeName: "test",
+				Config: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id":   cty.String,
+							"test": cty.String,
+						}),
+						cty.ObjectVal(map[string]cty.Value{
+							"id":   cty.NullVal(cty.String),
+							"test": cty.NullVal(cty.String),
+						}),
+					),
+				},
+			},
+			expected: &tfprotov5.ReadDataSourceResponse{
+				State: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id":   cty.String,
+							"test": cty.String,
+						}),
+						cty.ObjectVal(map[string]cty.Value{
+							"id":   cty.StringVal("test-id"),
+							"test": cty.NullVal(cty.String),
+						}),
+					),
+				},
+			},
+		},
+		"required-id": {
+			server: NewGRPCProviderServer(&Provider{
+				DataSourcesMap: map[string]*Resource{
+					"test": {
+						SchemaVersion: 1,
+						Schema: map[string]*Schema{
+							"id": {
+								Type:     TypeString,
+								Required: true,
+							},
+						},
+						ReadContext: func(ctx context.Context, d *ResourceData, meta interface{}) diag.Diagnostics {
+							d.SetId("test-id")
+							return nil
+						},
+					},
+				},
+			}),
+			req: &tfprotov5.ReadDataSourceRequest{
+				TypeName: "test",
+				Config: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id": cty.String,
+						}),
+						cty.ObjectVal(map[string]cty.Value{
+							"id": cty.StringVal("test-id"),
+						}),
+					),
+				},
+			},
+			expected: &tfprotov5.ReadDataSourceResponse{
+				State: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id": cty.String,
+						}),
+						cty.ObjectVal(map[string]cty.Value{
+							"id": cty.StringVal("test-id"),
+						}),
+					),
+				},
+			},
+		},
+		"required-no-id": {
+			server: NewGRPCProviderServer(&Provider{
+				DataSourcesMap: map[string]*Resource{
+					"test": {
+						SchemaVersion: 1,
+						Schema: map[string]*Schema{
+							"test": {
+								Type:     TypeString,
+								Required: true,
+							},
+						},
+						ReadContext: func(ctx context.Context, d *ResourceData, meta interface{}) diag.Diagnostics {
+							d.SetId("test-id")
+							return nil
+						},
+					},
+				},
+			}),
+			req: &tfprotov5.ReadDataSourceRequest{
+				TypeName: "test",
+				Config: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id":   cty.String,
+							"test": cty.String,
+						}),
+						cty.ObjectVal(map[string]cty.Value{
+							"id":   cty.NullVal(cty.String),
+							"test": cty.StringVal("test-string"),
+						}),
+					),
+				},
+			},
+			expected: &tfprotov5.ReadDataSourceResponse{
+				State: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id":   cty.String,
+							"test": cty.String,
+						}),
+						cty.ObjectVal(map[string]cty.Value{
+							"id":   cty.StringVal("test-id"),
+							"test": cty.StringVal("test-string"),
+						}),
+					),
+				},
+			},
+		},
+	}
+
+	for name, testCase := range testCases {
+		name, testCase := name, testCase
+
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			resp, err := testCase.server.ReadDataSource(context.Background(), testCase.req)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if diff := cmp.Diff(resp, testCase.expected, valueComparer); diff != "" {
+				ty := testCase.server.getDatasourceSchemaBlock("test").ImpliedType()
+
+				if resp != nil && resp.State != nil {
+					t.Logf("resp.State.MsgPack: %s", mustMsgpackUnmarshal(ty, resp.State.MsgPack))
+				}
+
+				if testCase.expected != nil && testCase.expected.State != nil {
+					t.Logf("expected: %s", mustMsgpackUnmarshal(ty, testCase.expected.State.MsgPack))
+				}
+
+				t.Error(diff)
+			}
+		})
+	}
+}
+
 func TestPrepareProviderConfig(t *testing.T) {
 	for _, tc := range []struct {
 		Name         string
@@ -883,7 +1278,7 @@ func TestPrepareProviderConfig(t *testing.T) {
 				},
 			}
 
-			resp, err := server.PrepareProviderConfig(nil, testReq)
+			resp, err := server.PrepareProviderConfig(context.Background(), testReq)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1660,7 +2055,11 @@ func TestStopContext_stop(t *testing.T) {
 				}
 				close(doneCh)
 			}()
-			server.StopProvider(context.Background(), &tfprotov5.StopProviderRequest{})
+
+			if _, err := server.StopProvider(context.Background(), &tfprotov5.StopProviderRequest{}); err != nil {
+				t.Fatalf("unexpected StopProvider error: %s", err)
+			}
+
 			select {
 			case <-doneCh:
 			case err := <-errCh:
@@ -1778,7 +2177,11 @@ func TestStopContext_stopReset(t *testing.T) {
 				}
 				close(d)
 			}(doneCh)
-			server.StopProvider(context.Background(), &tfprotov5.StopProviderRequest{})
+
+			if _, err := server.StopProvider(context.Background(), &tfprotov5.StopProviderRequest{}); err != nil {
+				t.Fatalf("unexpected StopProvider error: %s", err)
+			}
+
 			select {
 			case <-doneCh:
 			case err := <-errCh:
@@ -1802,7 +2205,11 @@ func TestStopContext_stopReset(t *testing.T) {
 				}
 				close(d)
 			}(doneCh)
-			server.StopProvider(context.Background(), &tfprotov5.StopProviderRequest{})
+
+			if _, err := server.StopProvider(context.Background(), &tfprotov5.StopProviderRequest{}); err != nil {
+				t.Fatalf("unexpected StopProvider error: %s", err)
+			}
+
 			select {
 			case <-doneCh:
 			case err := <-errCh:
@@ -1821,4 +2228,24 @@ func Test_pathToAttributePath_noSteps(t *testing.T) {
 	if res != nil {
 		t.Errorf("Expected nil attribute path, got %+v", res)
 	}
+}
+
+func mustMsgpackMarshal(ty cty.Type, val cty.Value) []byte {
+	result, err := msgpack.Marshal(val, ty)
+
+	if err != nil {
+		panic(fmt.Sprintf("cannot marshal msgpack: %s\n\ntype: %v\n\nvalue: %v", err, ty, val))
+	}
+
+	return result
+}
+
+func mustMsgpackUnmarshal(ty cty.Type, b []byte) cty.Value {
+	result, err := msgpack.Unmarshal(b, ty)
+
+	if err != nil {
+		panic(fmt.Sprintf("cannot unmarshal msgpack: %s\n\ntype: %v\n\nvalue: %v", err, ty, b))
+	}
+
+	return result
 }

@@ -18,7 +18,7 @@ import (
 )
 
 func init() {
-	if err := os.Setenv(TestEnvVar, "1"); err != nil {
+	if err := os.Setenv(EnvTfAcc, "1"); err != nil {
 		panic(err)
 	}
 }
@@ -36,7 +36,7 @@ func TestParallelTest(t *testing.T) {
 func TestTest_factoryError(t *testing.T) {
 	resourceFactoryError := fmt.Errorf("resource factory error")
 
-	factory := func() (*schema.Provider, error) {
+	factory := func() (*schema.Provider, error) { //nolint:unparam // required signature
 		return nil, resourceFactoryError
 	}
 	mt := new(mockT)

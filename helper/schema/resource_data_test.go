@@ -2075,6 +2075,87 @@ func TestResourceDataHasChange(t *testing.T) {
 
 			Change: false,
 		},
+
+		{
+			Schema: map[string]*Schema{
+				"network_configuration": {
+					Type:     TypeList,
+					MaxItems: 1,
+					Elem: &Resource{
+						Schema: map[string]*Schema{
+							"security_groups": {
+								Type:     TypeSet,
+								Optional: true,
+								Elem:     &Schema{Type: TypeString},
+								Set:      HashString,
+							},
+						},
+					},
+				},
+			},
+
+			State: &terraform.InstanceState{
+				Attributes: map[string]string{
+					"network_configuration.#":                            "1",
+					"network_configuration.0.security_groups.#":          "2",
+					"network_configuration.0.security_groups.1268622331": "sg2",
+					"network_configuration.0.security_groups.3532976705": "sg1",
+				},
+			},
+
+			Diff: &terraform.InstanceDiff{
+				Attributes: map[string]*terraform.ResourceAttrDiff{},
+			},
+
+			Key: "network_configuration",
+
+			Change: false,
+		},
+
+		{
+			Schema: map[string]*Schema{
+				"network_configuration": {
+					Type:     TypeList,
+					MaxItems: 1,
+					Elem: &Resource{
+						Schema: map[string]*Schema{
+							"security_groups": {
+								Type:     TypeSet,
+								Optional: true,
+								Elem:     &Schema{Type: TypeString},
+								Set:      HashString,
+							},
+						},
+					},
+				},
+			},
+
+			State: &terraform.InstanceState{
+				Attributes: map[string]string{
+					"network_configuration.#":                            "1",
+					"network_configuration.0.security_groups.#":          "2",
+					"network_configuration.0.security_groups.1268622331": "sg2",
+					"network_configuration.0.security_groups.3532976705": "sg1",
+				},
+			},
+
+			Diff: &terraform.InstanceDiff{
+				Attributes: map[string]*terraform.ResourceAttrDiff{
+					"network_configuration.0.security_groups.1268622331": {
+						Old: "sg2",
+						New: "",
+					},
+					"network_configuration.0.security_groups.1016763245": {
+						Old: "",
+						New: "sg3",
+					},
+				},
+			},
+
+			Key: "network_configuration",
+
+			Change: true,
+		},
 	}
 
 	for i, tc := range cases {
