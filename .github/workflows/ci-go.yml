@@ -28,33 +28,31 @@ jobs:
       - uses: golangci/golangci-lint-action@v3.1.0
         with:
           skip-go-installation: true
-  terraform-provider-corner:
-    defaults:
-      run:
-        working-directory: terraform-provider-corner
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/checkout@v3
-        with:
-          path: terraform-provider-corner
-          repository: hashicorp/terraform-provider-corner
-      - id: go-version
-        # Reference: https://github.com/actions/setup-go/issues/23
-        run: echo "::set-output name=version::$(cat ./.go-version)"
-        working-directory: .
-      - uses: actions/setup-go@v2
-        with:
-          go-version: 1.17.x
-          # NOTE: restore the line below once this repo has moved to go 1.17. We're currently hardcoding 1.17.x
-          # because the 'corner' provider has moved to that version and we'd still like this test to run.
-          #
-          #go-version: ${{ steps.go-version.outputs.version }}
-      - run: go mod edit -replace=github.com/hashicorp/terraform-plugin-sdk/v2=../
-      - run: go mod tidy
-      - run: go test -v ./...
-        env:
-          TF_ACC: '1'
+# NOTE: we've disabled the corner test because it uses features (UseJSONNumber) that we do not support in our fork.
+#
+#  terraform-provider-corner:
+#    defaults:
+#      run:
+#        working-directory: terraform-provider-corner
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@v3
+#      - uses: actions/checkout@v3
+#        with:
+#          path: terraform-provider-corner
+#          repository: hashicorp/terraform-provider-corner
+#      - id: go-version
+#        # Reference: https://github.com/actions/setup-go/issues/23
+#        run: echo "::set-output name=version::$(cat ./.go-version)"
+#        working-directory: .
+#      - uses: actions/setup-go@v2
+#        with:
+#          go-version: ${{ steps.go-version.outputs.version }}
+#      - run: go mod edit -replace=github.com/hashicorp/terraform-plugin-sdk/v2=../
+#      - run: go mod tidy
+#      - run: go test -v ./...
+#        env:
+#          TF_ACC: '1'
   test:
     name: test (Go v${{ matrix.go-version }})
     runs-on: ubuntu-latest
