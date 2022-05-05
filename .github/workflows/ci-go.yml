@@ -45,7 +45,11 @@ jobs:
         working-directory: .
       - uses: actions/setup-go@v2
         with:
-          go-version: ${{ steps.go-version.outputs.version }}
+          go-version: 1.17.x
+          # NOTE: restore the line below once this repo has moved to go 1.17. We're currently hardcoding 1.17.x
+          # because the 'corner' provider has moved to that version and we'd still like this test to run.
+          #
+          #go-version: ${{ steps.go-version.outputs.version }}
       - run: go mod edit -replace=github.com/hashicorp/terraform-plugin-sdk/v2=../
       - run: go mod tidy
       - run: go test -v ./...
