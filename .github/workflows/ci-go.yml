@@ -21,7 +21,7 @@ jobs:
       - id: go-version
         # Reference: https://github.com/actions/setup-go/issues/23
         run: echo "::set-output name=version::$(cat ./.go-version)"
-      - uses: actions/setup-go@v2
+      - uses: actions/setup-go@v3
         with:
           go-version: ${{ steps.go-version.outputs.version }}
       - run: go mod download
@@ -53,21 +53,22 @@ jobs:
 #      - run: go test -v ./...
 #        env:
 #          TF_ACC: '1'
+
   test:
     name: test (Go v${{ matrix.go-version }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: [ '1.17', '1.16' ]
+        go-version: [ '1.18', '1.17' ]
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-go@v2
+      - uses: actions/setup-go@v3
         with:
           go-version: ${{ matrix.go-version }}
       - run: go mod download
       - run: go test -coverprofile=coverage.out ./...
       - run: go tool cover -html=coverage.out -o coverage.html
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
           name: go-${{ matrix.go-version }}-coverage
           path: coverage.html
