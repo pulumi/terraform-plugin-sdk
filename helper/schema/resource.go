@@ -569,6 +569,22 @@ type Resource struct {
 	// other user facing usage. It can be plain-text or markdown depending on the
 	// global DescriptionKind setting. This field is valid for any Resource.
 	Description string
+
+	// UseJSONNumber should be set when state upgraders will expect
+	// json.Numbers instead of float64s for numbers. This is added as a
+	// toggle for backwards compatibility for type assertions, but should
+	// be used in all new resources to avoid bugs with sufficiently large
+	// user input. This field is only valid when the Resource is a managed
+	// resource.
+	//
+	// See github.com/hashicorp/terraform-plugin-sdk/issues/655 for more
+	// details.
+	//
+	// Fork: We only add this for backward compatibility purposes. This
+	// bool is not used in any of the codebase and serves only when a resource
+	// has opted into `UseJSONNumber` in the resource definition. This only
+	// is in place to allow providers to compile.
+	UseJSONNumber bool
 }
 
 // ShimInstanceStateFromValue converts a cty.Value to a
