@@ -38,7 +38,7 @@ require (
 	github.com/mitchellh/copystructure v1.0.0
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/mitchellh/go-wordwrap v1.0.0
-	github.com/mitchellh/mapstructure v1.1.2
+	github.com/mitchellh/mapstructure v1.5.0
 	github.com/mitchellh/reflectwalk v1.0.1
 	github.com/pierrec/lz4 v2.0.5+incompatible
 	github.com/posener/complete v1.2.1 // indirect
