@@ -13,9 +13,118 @@ import (
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/customdiff"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
+
+func TestStepConfigHasProviderBlock(t *testing.T) {
+	t.Parallel()
+
+	testCases := map[string]struct {
+		testStep TestStep
+		expected bool
+	}{
+		"no-config": {
+			testStep: TestStep{},
+			expected: false,
+		},
+		"provider-meta-attribute": {
+			testStep: TestStep{
+				Config: `
+resource "test_test" "test" {
+  provider = test.test
+}
+`,
+			},
+			expected: false,
+		},
+		"provider-object-attribute": {
+			testStep: TestStep{
+				Config: `
+resource "test_test" "test" {
+  test = {
+	provider = {
+	  test = true
+	}
+  }
+}
+`,
+			},
+			expected: false,
+		},
+		"provider-string-attribute": {
+			testStep: TestStep{
+				Config: `
+resource "test_test" "test" {
+  test = {
+	provider = "test"
+  }
+}
+`,
+			},
+			expected: false,
+		},
+		"provider-block-quoted-with-attributes": {
+			testStep: TestStep{
+				Config: `
+provider "test" {
+  test = true
+}
+
+resource "test_test" "test" {}
+`,
+			},
+			expected: true,
+		},
+		"provider-block-unquoted-with-attributes": {
+			testStep: TestStep{
+				Config: `
+provider test {
+  test = true
+}
+
+resource "test_test" "test" {}
+`,
+			},
+			expected: true,
+		},
+		"provider-block-quoted-without-attributes": {
+			testStep: TestStep{
+				Config: `
+provider "test" {}
+
+resource "test_test" "test" {}
+`,
+			},
+			expected: true,
+		},
+		"provider-block-unquoted-without-attributes": {
+			testStep: TestStep{
+				Config: `
+provider test {}
+
+resource "test_test" "test" {}
+`,
+			},
+			expected: true,
+		},
+	}
+
+	for name, testCase := range testCases {
+		name, testCase := name, testCase
+
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got := testCase.testStep.configHasProviderBlock(context.Background())
+
+			if testCase.expected != got {
+				t.Errorf("expected %t, got %t", testCase.expected, got)
+			}
+		})
+	}
+}
 
 func TestStepMergedConfig(t *testing.T) {
 	t.Parallel()
@@ -392,6 +501,105 @@ resource "externaltest_test" "test" {}
 resource "localtest_test" "test" {}
 `,
 		},
+		"teststep-externalproviders-config-with-provider-block-quoted": {
+			testCase: TestCase{},
+			testStep: TestStep{
+				ExternalProviders: map[string]ExternalProvider{
+					"test": {
+						Source:            "registry.terraform.io/hashicorp/test",
+						VersionConstraint: "1.2.3",
+					},
+				},
+				Config: `
+provider "test" {}
+
+resource "test_test" "test" {}
+`,
+			},
+			expected: `
+terraform {
+  required_providers {
+    test = {
+      source = "registry.terraform.io/hashicorp/test"
+      version = "1.2.3"
+    }
+  }
+}
+
+
+
+provider "test" {}
+
+resource "test_test" "test" {}
+`,
+		},
+		"teststep-externalproviders-config-with-provider-block-unquoted": {
+			testCase: TestCase{},
+			testStep: TestStep{
+				ExternalProviders: map[string]ExternalProvider{
+					"test": {
+						Source:            "registry.terraform.io/hashicorp/test",
+						VersionConstraint: "1.2.3",
+					},
+				},
+				Config: `
+provider test {}
+
+resource "test_test" "test" {}
+`,
+			},
+			expected: `
+terraform {
+  required_providers {
+    test = {
+      source = "registry.terraform.io/hashicorp/test"
+      version = "1.2.3"
+    }
+  }
+}
+
+
+
+provider test {}
+
+resource "test_test" "test" {}
+`,
+		},
+		"teststep-externalproviders-config-with-terraform-block": {
+			testCase: TestCase{},
+			testStep: TestStep{
+				ExternalProviders: map[string]ExternalProvider{
+					"test": {
+						Source:            "registry.terraform.io/hashicorp/test",
+						VersionConstraint: "1.2.3",
+					},
+				},
+				Config: `
+terraform {
+  required_providers {
+    test = {
+      source = "registry.terraform.io/hashicorp/test"
+      version = "1.2.3"
+    }
+  }
+}
+
+resource "test_test" "test" {}
+`,
+			},
+			expected: `
+terraform {
+  required_providers {
+    test = {
+      source = "registry.terraform.io/hashicorp/test"
+      version = "1.2.3"
+    }
+  }
+}
+
+resource "test_test" "test" {}
+`,
+		},
 		"teststep-externalproviders-missing-source-and-versionconstraint": {
 			testCase: TestCase{},
 			testStep: TestStep{
@@ -554,8 +762,9 @@ func TestStepProviderConfig(t *testing.T) {
 	t.Parallel()
 
 	testCases := map[string]struct {
-		testStep TestStep
-		expected string
+		testStep          TestStep
+		skipProviderBlock bool
+		expected          string
 	}{
 		"externalproviders-and-protov5providerfactories": {
 			testStep: TestStep{
@@ -639,6 +848,27 @@ provider "externaltest" {}
 				},
 			},
 			expected: `provider "test" {}`,
+		},
+		"externalproviders-skip-provider-block": {
+			testStep: TestStep{
+				ExternalProviders: map[string]ExternalProvider{
+					"test": {
+						Source:            "registry.terraform.io/hashicorp/test",
+						VersionConstraint: "1.2.3",
+					},
+				},
+			},
+			skipProviderBlock: true,
+			expected: `
+terraform {
+  required_providers {
+    test = {
+      source = "registry.terraform.io/hashicorp/test"
+      version = "1.2.3"
+    }
+  }
+}
+`,
 		},
 		"externalproviders-source-and-versionconstraint": {
 			testStep: TestStep{
@@ -734,7 +964,7 @@ provider "test" {}
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			got := testCase.testStep.providerConfig(context.Background())
+			got := testCase.testStep.providerConfig(context.Background(), testCase.skipProviderBlock)
 
 			if diff := cmp.Diff(strings.TrimSpace(got), strings.TrimSpace(testCase.expected)); diff != "" {
 				t.Errorf("unexpected difference: %s", diff)
@@ -1075,6 +1305,7 @@ func TestTest_TestStep_Taint(t *testing.T) {
 	}
 }
 
+//nolint:unparam
 func extractResourceAttr(resourceName string, attributeName string, attributeValue *string) TestCheckFunc {
 	return func(s *terraform.State) error {
 		rs, ok := s.RootModule().Resources[resourceName]
@@ -1252,6 +1483,8 @@ func TestTest_TestStep_ProviderFactories_To_ExternalProviders(t *testing.T) {
 }
 
 func TestTest_TestStep_ProviderFactories_Import_Inline(t *testing.T) {
+	id := "none"
+
 	t.Parallel()
 
 	Test(t, TestCase{
@@ -1315,9 +1548,8 @@ func TestTest_TestStep_ProviderFactories_Import_Inline(t *testing.T) {
 				ImportStateId:      "Z=:cbrJE?Ltg",
 				ImportStatePersist: true,
 				ImportStateCheck: composeImportStateCheck(
-					testCheckResourceAttrInstanceState("id", "none"),
-					testCheckResourceAttrInstanceState("result", "Z=:cbrJE?Ltg"),
-					testCheckResourceAttrInstanceState("length", "12"),
+					testCheckResourceAttrInstanceState(&id, "result", "Z=:cbrJE?Ltg"),
+					testCheckResourceAttrInstanceState(&id, "length", "12"),
 				),
 			},
 		},
@@ -1390,7 +1622,7 @@ func TestTest_TestStep_ProviderFactories_Import_Inline_WithPersistMatch(t *testi
 				ImportStateId:      "Z=:cbrJE?Ltg",
 				ImportStatePersist: true,
 				ImportStateCheck: composeImportStateCheck(
-					testExtractResourceAttrInstanceState("result", &result1),
+					testExtractResourceAttrInstanceState("none", "result", &result1),
 				),
 			},
 			{
@@ -1483,6 +1715,8 @@ func TestTest_TestStep_ProviderFactories_Import_Inline_WithoutPersist(t *testing
 }
 
 func TestTest_TestStep_ProviderFactories_Import_External(t *testing.T) {
+	id := "none"
+
 	t.Parallel()
 
 	Test(t, TestCase{
@@ -1499,9 +1733,8 @@ func TestTest_TestStep_ProviderFactories_Import_External(t *testing.T) {
 				ImportStateId:      "Z=:cbrJE?Ltg",
 				ImportStatePersist: true,
 				ImportStateCheck: composeImportStateCheck(
-					testCheckResourceAttrInstanceState("id", "none"),
-					testCheckResourceAttrInstanceState("result", "Z=:cbrJE?Ltg"),
-					testCheckResourceAttrInstanceState("length", "12"),
+					testCheckResourceAttrInstanceState(&id, "result", "Z=:cbrJE?Ltg"),
+					testCheckResourceAttrInstanceState(&id, "length", "12"),
 				),
 			},
 		},
@@ -1527,7 +1760,7 @@ func TestTest_TestStep_ProviderFactories_Import_External_WithPersistMatch(t *tes
 				ImportStateId:      "Z=:cbrJE?Ltg",
 				ImportStatePersist: true,
 				ImportStateCheck: composeImportStateCheck(
-					testExtractResourceAttrInstanceState("result", &result1),
+					testExtractResourceAttrInstanceState("none", "result", &result1),
 				),
 			},
 			{
@@ -1560,7 +1793,7 @@ func TestTest_TestStep_ProviderFactories_Import_External_WithoutPersistNonMatch(
 				ImportStateId:      "Z=:cbrJE?Ltg",
 				ImportStatePersist: false,
 				ImportStateCheck: composeImportStateCheck(
-					testExtractResourceAttrInstanceState("result", &result1),
+					testExtractResourceAttrInstanceState("none", "result", &result1),
 				),
 			},
 			{
@@ -1572,6 +1805,339 @@ func TestTest_TestStep_ProviderFactories_Import_External_WithoutPersistNonMatch(
 			},
 		},
 	})
+}
+
+func TestTest_TestStep_ProviderFactories_Refresh_Inline(t *testing.T) {
+	t.Parallel()
+
+	Test(t, TestCase{
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"random": func() (*schema.Provider, error) { //nolint:unparam // required signature
+				return &schema.Provider{
+					ResourcesMap: map[string]*schema.Resource{
+						"random_password": {
+							CreateContext: func(ctx context.Context, d *schema.ResourceData, i interface{}) diag.Diagnostics {
+								d.SetId("id")
+								err := d.Set("min_special", 10)
+								if err != nil {
+									panic(err)
+								}
+								return nil
+							},
+							DeleteContext: func(_ context.Context, _ *schema.ResourceData, _ interface{}) diag.Diagnostics {
+								return nil
+							},
+							ReadContext: func(_ context.Context, d *schema.ResourceData, _ interface{}) diag.Diagnostics {
+								err := d.Set("min_special", 2)
+								if err != nil {
+									panic(err)
+								}
+								return nil
+							},
+							Schema: map[string]*schema.Schema{
+								"min_special": {
+									Computed: true,
+									Type:     schema.TypeInt,
+								},
+
+								"id": {
+									Computed: true,
+									Type:     schema.TypeString,
+								},
+							},
+						},
+					},
+				}, nil
+			},
+		},
+		Steps: []TestStep{
+			{
+				Config: `resource "random_password" "test" { }`,
+				Check:  TestCheckResourceAttr("random_password.test", "min_special", "10"),
+			},
+			{
+				RefreshState: true,
+				Check:        TestCheckResourceAttr("random_password.test", "min_special", "2"),
+			},
+			{
+				Config: `resource "random_password" "test" { }`,
+				Check:  TestCheckResourceAttr("random_password.test", "min_special", "2"),
+			},
+		},
+	})
+}
+
+func TestTest_TestStep_ProviderFactories_RefreshWithPlanModifier_Inline(t *testing.T) {
+	t.Parallel()
+
+	Test(t, TestCase{
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"random": func() (*schema.Provider, error) { //nolint:unparam // required signature
+				return &schema.Provider{
+					ResourcesMap: map[string]*schema.Resource{
+						"random_password": {
+							CustomizeDiff: customdiff.All(
+								func(ctx context.Context, d *schema.ResourceDiff, meta interface{}) error {
+									special := d.Get("special").(bool)
+									if special == true {
+										err := d.SetNew("special", false)
+										if err != nil {
+											panic(err)
+										}
+									}
+									return nil
+								},
+							),
+							CreateContext: func(ctx context.Context, d *schema.ResourceData, i interface{}) diag.Diagnostics {
+								d.SetId("id")
+								err := d.Set("special", false)
+								if err != nil {
+									panic(err)
+								}
+								return nil
+							},
+							DeleteContext: func(_ context.Context, _ *schema.ResourceData, _ interface{}) diag.Diagnostics {
+								return nil
+							},
+							ReadContext: func(_ context.Context, d *schema.ResourceData, _ interface{}) diag.Diagnostics {
+								t := getTimeForTest()
+								if t.After(time.Now().Add(time.Hour * 1)) {
+									err := d.Set("special", true)
+									if err != nil {
+										panic(err)
+									}
+								}
+								return nil
+							},
+							Schema: map[string]*schema.Schema{
+								"special": {
+									Computed: true,
+									Type:     schema.TypeBool,
+									ForceNew: true,
+								},
+
+								"id": {
+									Computed: true,
+									Type:     schema.TypeString,
+								},
+							},
+						},
+					},
+				}, nil
+			},
+		},
+		Steps: []TestStep{
+			{
+				Config: `resource "random_password" "test" { }`,
+				Check:  TestCheckResourceAttr("random_password.test", "special", "false"),
+			},
+			{
+				PreConfig:          setTimeForTest(time.Now().Add(time.Hour * 2)),
+				RefreshState:       true,
+				ExpectNonEmptyPlan: true,
+				Check:              TestCheckResourceAttr("random_password.test", "special", "true"),
+			},
+			{
+				PreConfig: setTimeForTest(time.Now()),
+				Config:    `resource "random_password" "test" { }`,
+				Check:     TestCheckResourceAttr("random_password.test", "special", "false"),
+			},
+		},
+	})
+}
+
+func TestTest_TestStep_ProviderFactories_Import_Inline_With_Data_Source(t *testing.T) {
+	var id string
+
+	t.Parallel()
+
+	Test(t, TestCase{
+		ProviderFactories: map[string]func() (*schema.Provider, error){
+			"http": func() (*schema.Provider, error) { //nolint:unparam // required signature
+				return &schema.Provider{
+					DataSourcesMap: map[string]*schema.Resource{
+						"http": {
+							ReadContext: func(ctx context.Context, d *schema.ResourceData, i interface{}) (diags diag.Diagnostics) {
+								url := d.Get("url").(string)
+
+								responseHeaders := map[string]string{
+									"headerOne":   "one",
+									"headerTwo":   "two",
+									"headerThree": "three",
+									"headerFour":  "four",
+								}
+								if err := d.Set("response_headers", responseHeaders); err != nil {
+									return append(diags, diag.Errorf("Error setting HTTP response headers: %s", err)...)
+								}
+
+								d.SetId(url)
+
+								return diags
+							},
+							Schema: map[string]*schema.Schema{
+								"url": {
+									Type:     schema.TypeString,
+									Required: true,
+								},
+								"response_headers": {
+									Type:     schema.TypeMap,
+									Computed: true,
+									Elem: &schema.Schema{
+										Type: schema.TypeString,
+									},
+								},
+							},
+						},
+					},
+				}, nil
+			},
+			"random": func() (*schema.Provider, error) { //nolint:unparam // required signature
+				return &schema.Provider{
+					ResourcesMap: map[string]*schema.Resource{
+						"random_string": {
+							CreateContext: func(_ context.Context, d *schema.ResourceData, _ interface{}) diag.Diagnostics {
+								d.SetId("none")
+								err := d.Set("length", 4)
+								if err != nil {
+									panic(err)
+								}
+								err = d.Set("result", "none")
+								if err != nil {
+									panic(err)
+								}
+								return nil
+							},
+							DeleteContext: func(_ context.Context, _ *schema.ResourceData, _ interface{}) diag.Diagnostics {
+								return nil
+							},
+							ReadContext: func(_ context.Context, _ *schema.ResourceData, _ interface{}) diag.Diagnostics {
+								return nil
+							},
+							Schema: map[string]*schema.Schema{
+								"length": {
+									Required: true,
+									ForceNew: true,
+									Type:     schema.TypeInt,
+								},
+								"result": {
+									Type:      schema.TypeString,
+									Computed:  true,
+									Sensitive: true,
+								},
+
+								"id": {
+									Computed: true,
+									Type:     schema.TypeString,
+								},
+							},
+							Importer: &schema.ResourceImporter{
+								StateContext: func(ctx context.Context, d *schema.ResourceData, meta interface{}) ([]*schema.ResourceData, error) {
+									val := d.Id()
+
+									d.SetId(val)
+
+									err := d.Set("result", val)
+									if err != nil {
+										panic(err)
+									}
+
+									err = d.Set("length", len(val))
+									if err != nil {
+										panic(err)
+									}
+
+									return []*schema.ResourceData{d}, nil
+								},
+							},
+						},
+					},
+				}, nil
+			},
+		},
+		Steps: []TestStep{
+			{
+				Config: `data "http" "example" {
+							url = "https://checkpoint-api.hashicorp.com/v1/check/terraform"
+						}
+
+						resource "random_string" "example" {
+							length = length(data.http.example.response_headers)
+						}`,
+				Check: extractResourceAttr("random_string.example", "id", &id),
+			},
+			{
+				Config: `data "http" "example" {
+							url = "https://checkpoint-api.hashicorp.com/v1/check/terraform"
+						}
+
+						resource "random_string" "example" {
+							length = length(data.http.example.response_headers)
+						}`,
+				ResourceName: "random_string.example",
+				ImportState:  true,
+				ImportStateCheck: composeImportStateCheck(
+					testCheckResourceAttrInstanceState(&id, "length", "4"),
+				),
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+func TestTest_TestStep_ProviderFactories_Import_External_With_Data_Source(t *testing.T) {
+	var id string
+
+	t.Parallel()
+
+	Test(t, TestCase{
+		ExternalProviders: map[string]ExternalProvider{
+			"http": {
+				Source: "registry.terraform.io/hashicorp/http",
+			},
+			"random": {
+				Source: "registry.terraform.io/hashicorp/random",
+			},
+		},
+		Steps: []TestStep{
+			{
+				Config: `data "http" "example" {
+							url = "https://checkpoint-api.hashicorp.com/v1/check/terraform"
+						}
+
+						resource "random_string" "example" {
+							length = length(data.http.example.response_headers)
+						}`,
+				Check: extractResourceAttr("random_string.example", "id", &id),
+			},
+			{
+				Config: `data "http" "example" {
+							url = "https://checkpoint-api.hashicorp.com/v1/check/terraform"
+						}
+
+						resource "random_string" "example" {
+							length = length(data.http.example.response_headers)
+						}`,
+				ResourceName: "random_string.example",
+				ImportState:  true,
+				ImportStateCheck: composeImportStateCheck(
+					testCheckResourceAttrInstanceState(&id, "length", "12"),
+				),
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+func setTimeForTest(t time.Time) func() {
+	return func() {
+		getTimeForTest = func() time.Time {
+			return t
+		}
+	}
+}
+
+var getTimeForTest = func() time.Time {
+	return time.Now()
 }
 
 func composeImportStateCheck(fs ...ImportStateCheckFunc) ImportStateCheckFunc {
@@ -1586,43 +2152,41 @@ func composeImportStateCheck(fs ...ImportStateCheckFunc) ImportStateCheckFunc {
 	}
 }
 
-func testExtractResourceAttrInstanceState(attributeName string, attributeValue *string) ImportStateCheckFunc {
+func testExtractResourceAttrInstanceState(id, attributeName string, attributeValue *string) ImportStateCheckFunc {
 	return func(is []*terraform.InstanceState) error {
-		if len(is) != 1 {
-			return fmt.Errorf("unexpected number of instance states: %d", len(is))
+		for _, v := range is {
+			if v.ID != id {
+				continue
+			}
+
+			if attrVal, ok := v.Attributes[attributeName]; ok {
+				*attributeValue = attrVal
+
+				return nil
+			}
 		}
 
-		s := is[0]
-
-		attrValue, ok := s.Attributes[attributeName]
-		if !ok {
-			return fmt.Errorf("attribute %s not found in instance state", attributeName)
-		}
-
-		*attributeValue = attrValue
-
-		return nil
+		return fmt.Errorf("attribute %s not found in instance state", attributeName)
 	}
 }
 
-func testCheckResourceAttrInstanceState(attributeName, attributeValue string) ImportStateCheckFunc {
+func testCheckResourceAttrInstanceState(id *string, attributeName, attributeValue string) ImportStateCheckFunc {
 	return func(is []*terraform.InstanceState) error {
-		if len(is) != 1 {
-			return fmt.Errorf("unexpected number of instance states: %d", len(is))
+		for _, v := range is {
+			if v.ID != *id {
+				continue
+			}
+
+			if attrVal, ok := v.Attributes[attributeName]; ok {
+				if attrVal != attributeValue {
+					return fmt.Errorf("expected: %s got: %s", attributeValue, attrVal)
+				}
+
+				return nil
+			}
 		}
 
-		s := is[0]
-
-		attrVal, ok := s.Attributes[attributeName]
-		if !ok {
-			return fmt.Errorf("attribute %s found in instance state", attributeName)
-		}
-
-		if attrVal != attributeValue {
-			return fmt.Errorf("expected: %s got: %s", attributeValue, attrVal)
-		}
-
-		return nil
+		return fmt.Errorf("attribute %s not found in instance state", attributeName)
 	}
 }
 
