@@ -1,3 +1,29 @@
+## 2.26.1 (March 21, 2023)
+
+BUG FIXES:
+
+* helper/resource: Prevented build errors with type aliasing added in v2.26.0 ([#1176](https://github.com/hashicorp/terraform-plugin-sdk/issues/1176))
+
+## 2.26.0 (March 20, 2023)
+
+NOTES:
+
+* This Go module has been updated to Go 1.19 per the [Go support policy](https://golang.org/doc/devel/release.html#policy). Any consumers building on earlier Go versions may experience errors. ([#1163](https://github.com/hashicorp/terraform-plugin-sdk/issues/1163))
+* helper/resource: Deprecated `PrefixedUniqueId()` and `UniqueId()`. Use the `helper/id` package instead. These deprecations are to assist in migrating to terraform-plugin-testing ([#1167](https://github.com/hashicorp/terraform-plugin-sdk/issues/1167))
+* helper/resource: Deprecated `RetryContext()`, `StateChangeConf`, and associated `*Error` types. Use the `helper/retry` package instead. These deprecations are to assist in migrating to terraform-plugin-testing ([#1167](https://github.com/hashicorp/terraform-plugin-sdk/issues/1167))
+
+ENHANCEMENTS:
+
+* helper/id: New `helper/id` package added. `resource.PrefixedUniqueId()` and `resource.UniqueId()` are deprecated, `helper/id` should be used instead. `helper/resource` now contains aliases to the migrated code ([#1167](https://github.com/hashicorp/terraform-plugin-sdk/issues/1167))
+* helper/retry: New `helper/retry` package added. `resource.RetryContext()`, `resource.StateChangeConf`, and associated `*Error` types are deprecated, `helper/retry` should be used instead. `helper/resource now contains aliases to the migrated code ([#1167](https://github.com/hashicorp/terraform-plugin-sdk/issues/1167))
+
+## 2.25.0 (February 15, 2023)
+
+BUG FIXES:
+
+* helper/schema: Allow diagnostic messages with incorrect UTF-8 encoding to pass through with the invalid sequences replaced with the Unicode Replacement Character. This avoids returning the unhelpful message "string field contains invalid UTF-8" in that case. ([#1111](https://github.com/hashicorp/terraform-plugin-sdk/issues/1111))
+* helper/schema: Prevented unexpected difference for timeouts on first plan after import ([#1146](https://github.com/hashicorp/terraform-plugin-sdk/issues/1146))
+
 # 2.24.1 (November 14, 2022)
 
 BUG FIXES:

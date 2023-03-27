@@ -7,6 +7,12 @@ description: |-
 
 # Acceptance Tests: TestSteps
 
+<Highlight>
+
+Terraform Provider testing has migrated to a new [terraform-plugin-testing](/terraform/plugin/testing) Go module. New features will only be implemented in the new module. Review the [migration documentation](/terraform/plugin/testing/migrating) to learn how to switch existing testing code.
+
+</Highlight>
+
 `TestStep`s represent the application of an actual Terraform configuration file
 to a given state. Each step requires a configuration as input and provides
 developers several means of validating the behavior of the specific resource
@@ -36,7 +42,7 @@ Reference API](https://pkg.go.dev/github.com/hashicorp/terraform-plugin-sdk/help
 ## Steps
 
 `Steps` is a field within
-[TestCase](/plugin/sdkv2/testing/acceptance-tests/testcase), the struct used
+[TestCase](/terraform/plugin/sdkv2/testing/acceptance-tests/testcase), the struct used
 to construct acceptance tests. Each step represents a full `terraform apply` of
 a given configuration language, followed by zero or more checks (defined later)
 to verify the application. Each `Step` is applied in order, and require its own
@@ -296,4 +302,4 @@ func testAccCheckExampleWidgetExists(resourceName string, widget *example.Widget
 
 ## Next Steps
 
-Acceptance Testing is an essential approach to validating the implementation of a Terraform Provider. Using actual APIs to provision resources for testing can leave behind real infrastructure that costs money between tests. The reasons for these leaks can vary, regardless Terraform provides a mechanism known as [Sweepers](/plugin/sdkv2/testing/acceptance-tests/sweepers) to help keep the testing account clean.
+Acceptance Testing is an essential approach to validating the implementation of a Terraform Provider. Using actual APIs to provision resources for testing can leave behind real infrastructure that costs money between tests. The reasons for these leaks can vary, regardless Terraform provides a mechanism known as [Sweepers](/terraform/plugin/sdkv2/testing/acceptance-tests/sweepers) to help keep the testing account clean.
