@@ -8,7 +8,7 @@ require (
 	github.com/apparentlymart/go-cidr v1.0.1
 	github.com/apparentlymart/go-dump v0.0.0-20190214190832-042adf3cf4a0
 	github.com/armon/go-radix v1.0.0 // indirect
-	github.com/aws/aws-sdk-go v1.25.3 // indirect
+	github.com/aws/aws-sdk-go v1.34.0 // indirect
 	github.com/davecgh/go-spew v1.1.1
 	github.com/go-test/deep v1.0.3
 	github.com/golang/mock v1.3.1
