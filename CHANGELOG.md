@@ -1,3 +1,29 @@
+## 2.29.0 (September 06, 2023)
+
+NOTES:
+
+* all: This Go module has been updated to Go 1.20 per the [Go support policy](https://go.dev/doc/devel/release#policy). It is recommended to review the [Go 1.20 release notes](https://go.dev/doc/go1.20) before upgrading. Any consumers building on earlier Go versions may experience errors. ([#1245](https://github.com/hashicorp/terraform-plugin-sdk/issues/1245))
+
+FEATURES:
+
+* helper/schema: Upgrade to protocol version 5.4, which can significantly reduce memory usage with Terraform 1.6 and later when a configuration includes multiple instances of the same provider ([#1234](https://github.com/hashicorp/terraform-plugin-sdk/issues/1234))
+
+ENHANCEMENTS:
+
+* helper/validation: Added `AllDiag` and `AnyDiag`, which are `SchemaValidateDiagFunc` variants of `All` and `Any` ([#1155](https://github.com/hashicorp/terraform-plugin-sdk/issues/1155))
+* helper/validation: Added quoting in `StringInSlice` error diagnostic output to prevent confusion with values that contain spaces ([#464](https://github.com/hashicorp/terraform-plugin-sdk/issues/464))
+
+## 2.28.0 (August 24, 2023)
+
+NOTES:
+
+* helper/schema: The `Resource` type `EnableApplyLegacyTypeSystemErrors` and `EnablePlanLegacyTypeSystemErrors` fields can be enabled to more easily discover resource data consistency errors which Terraform would normally demote to warning logs. Before enabling the flag in a production release for a resource, the resource should be exhaustively acceptance tested as there may be unrecoverable error situations for practitioners. It is recommended to first enable and test in environments where it is easy to clean up resources, potentially outside of Terraform. ([#1227](https://github.com/hashicorp/terraform-plugin-sdk/issues/1227))
+
+ENHANCEMENTS:
+
+* helper/schema: Added `Resource` type `EnableLegacyTypeSystemApplyErrors` field, which will prevent Terraform from demoting data consistency errors to warning logs during `ApplyResourceChange` (`Create`, `Update`, and `Delete`) operations with the resource ([#1227](https://github.com/hashicorp/terraform-plugin-sdk/issues/1227))
+* helper/schema: Added `Resource` type `EnableLegacyTypeSystemPlanErrors` field, which can be used to prevent Terraform from demoting data consistency errors to warning logs during `PlanResourceChange` operations with the resource ([#1227](https://github.com/hashicorp/terraform-plugin-sdk/issues/1227))
+
 ## 2.27.0 (June 28, 2023)
 
 NOTES:

@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -24,6 +26,124 @@ import (
 
 // The GRPCProviderServer will directly implement the go protobuf server
 var _ tfprotov5.ProviderServer = (*GRPCProviderServer)(nil)
+
+func TestGRPCProviderServerGetMetadata(t *testing.T) {
+	t.Parallel()
+
+	testCases := map[string]struct {
+		Provider *Provider
+		Expected *tfprotov5.GetMetadataResponse
+	}{
+		"datasources": {
+			Provider: &Provider{
+				DataSourcesMap: map[string]*Resource{
+					"test_datasource1": nil, // implementation not necessary
+					"test_datasource2": nil, // implementation not necessary
+				},
+			},
+			Expected: &tfprotov5.GetMetadataResponse{
+				DataSources: []tfprotov5.DataSourceMetadata{
+					{
+						TypeName: "test_datasource1",
+					},
+					{
+						TypeName: "test_datasource2",
+					},
+				},
+				Resources: []tfprotov5.ResourceMetadata{},
+				ServerCapabilities: &tfprotov5.ServerCapabilities{
+					GetProviderSchemaOptional: true,
+				},
+			},
+		},
+		"datasources and resources": {
+			Provider: &Provider{
+				DataSourcesMap: map[string]*Resource{
+					"test_datasource1": nil, // implementation not necessary
+					"test_datasource2": nil, // implementation not necessary
+				},
+				ResourcesMap: map[string]*Resource{
+					"test_resource1": nil, // implementation not necessary
+					"test_resource2": nil, // implementation not necessary
+				},
+			},
+			Expected: &tfprotov5.GetMetadataResponse{
+				DataSources: []tfprotov5.DataSourceMetadata{
+					{
+						TypeName: "test_datasource1",
+					},
+					{
+						TypeName: "test_datasource2",
+					},
+				},
+				Resources: []tfprotov5.ResourceMetadata{
+					{
+						TypeName: "test_resource1",
+					},
+					{
+						TypeName: "test_resource2",
+					},
+				},
+				ServerCapabilities: &tfprotov5.ServerCapabilities{
+					GetProviderSchemaOptional: true,
+				},
+			},
+		},
+		"resources": {
+			Provider: &Provider{
+				ResourcesMap: map[string]*Resource{
+					"test_resource1": nil, // implementation not necessary
+					"test_resource2": nil, // implementation not necessary
+				},
+			},
+			Expected: &tfprotov5.GetMetadataResponse{
+				DataSources: []tfprotov5.DataSourceMetadata{},
+				Resources: []tfprotov5.ResourceMetadata{
+					{
+						TypeName: "test_resource1",
+					},
+					{
+						TypeName: "test_resource2",
+					},
+				},
+				ServerCapabilities: &tfprotov5.ServerCapabilities{
+					GetProviderSchemaOptional: true,
+				},
+			},
+		},
+	}
+
+	for name, testCase := range testCases {
+		name, testCase := name, testCase
+
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			server := NewGRPCProviderServer(testCase.Provider)
+
+			testReq := &tfprotov5.GetMetadataRequest{}
+
+			resp, err := server.GetMetadata(context.Background(), testReq)
+
+			if err != nil {
+				t.Fatalf("unexpected gRPC error: %s", err)
+			}
+
+			// Prevent false positives with random map access in testing
+			sort.Slice(resp.DataSources, func(i int, j int) bool {
+				return resp.DataSources[i].TypeName < resp.DataSources[j].TypeName
+			})
+
+			sort.Slice(resp.Resources, func(i int, j int) bool {
+				return resp.Resources[i].TypeName < resp.Resources[j].TypeName
+			})
+
+			if diff := cmp.Diff(resp, testCase.Expected); diff != "" {
+				t.Errorf("unexpected response difference: %s", diff)
+			}
+		})
+	}
+}
 
 func TestUpgradeState_jsonState(t *testing.T) {
 	r := &Resource{
@@ -521,87 +641,124 @@ func TestUpgradeState_flatmapStateMissingMigrateState(t *testing.T) {
 }
 
 func TestPlanResourceChange(t *testing.T) {
-	r := &Resource{
-		SchemaVersion: 4,
-		Schema: map[string]*Schema{
-			"foo": {
-				Type:     TypeInt,
-				Optional: true,
+	t.Parallel()
+
+	testCases := map[string]struct {
+		TestResource                   *Resource
+		ExpectedUnsafeLegacyTypeSystem bool
+	}{
+		"basic": {
+			TestResource: &Resource{
+				SchemaVersion: 4,
+				Schema: map[string]*Schema{
+					"foo": {
+						Type:     TypeInt,
+						Optional: true,
+					},
+				},
 			},
+			ExpectedUnsafeLegacyTypeSystem: true,
+		},
+		"EnableLegacyTypeSystemPlanErrors": {
+			TestResource: &Resource{
+				EnableLegacyTypeSystemPlanErrors: true,
+				Schema: map[string]*Schema{
+					"foo": {
+						Type:     TypeInt,
+						Optional: true,
+					},
+				},
+			},
+			ExpectedUnsafeLegacyTypeSystem: false,
 		},
 	}
 
-	server := NewGRPCProviderServer(&Provider{
-		ResourcesMap: map[string]*Resource{
-			"test": r,
-		},
-	})
+	for name, testCase := range testCases {
+		name, testCase := name, testCase
 
-	schema := r.CoreConfigSchema()
-	priorState, err := msgpack.Marshal(cty.NullVal(schema.ImpliedType()), schema.ImpliedType())
-	if err != nil {
-		t.Fatal(err)
-	}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	// A propsed state with only the ID unknown will produce a nil diff, and
-	// should return the propsed state value.
-	proposedVal, err := schema.CoerceValue(cty.ObjectVal(map[string]cty.Value{
-		"id": cty.UnknownVal(cty.String),
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	proposedState, err := msgpack.Marshal(proposedVal, schema.ImpliedType())
-	if err != nil {
-		t.Fatal(err)
-	}
+			server := NewGRPCProviderServer(&Provider{
+				ResourcesMap: map[string]*Resource{
+					"test": testCase.TestResource,
+				},
+			})
 
-	config, err := schema.CoerceValue(cty.ObjectVal(map[string]cty.Value{
-		"id": cty.NullVal(cty.String),
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	configBytes, err := msgpack.Marshal(config, schema.ImpliedType())
-	if err != nil {
-		t.Fatal(err)
-	}
+			schema := testCase.TestResource.CoreConfigSchema()
+			priorState, err := msgpack.Marshal(cty.NullVal(schema.ImpliedType()), schema.ImpliedType())
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	testReq := &tfprotov5.PlanResourceChangeRequest{
-		TypeName: "test",
-		PriorState: &tfprotov5.DynamicValue{
-			MsgPack: priorState,
-		},
-		ProposedNewState: &tfprotov5.DynamicValue{
-			MsgPack: proposedState,
-		},
-		Config: &tfprotov5.DynamicValue{
-			MsgPack: configBytes,
-		},
-	}
+			// A propsed state with only the ID unknown will produce a nil diff, and
+			// should return the propsed state value.
+			proposedVal, err := schema.CoerceValue(cty.ObjectVal(map[string]cty.Value{
+				"id": cty.UnknownVal(cty.String),
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			proposedState, err := msgpack.Marshal(proposedVal, schema.ImpliedType())
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	resp, err := server.PlanResourceChange(context.Background(), testReq)
-	if err != nil {
-		t.Fatal(err)
-	}
+			config, err := schema.CoerceValue(cty.ObjectVal(map[string]cty.Value{
+				"id": cty.NullVal(cty.String),
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			configBytes, err := msgpack.Marshal(config, schema.ImpliedType())
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	plannedStateVal, err := msgpack.Unmarshal(resp.PlannedState.MsgPack, schema.ImpliedType())
-	if err != nil {
-		t.Fatal(err)
-	}
+			testReq := &tfprotov5.PlanResourceChangeRequest{
+				TypeName: "test",
+				PriorState: &tfprotov5.DynamicValue{
+					MsgPack: priorState,
+				},
+				ProposedNewState: &tfprotov5.DynamicValue{
+					MsgPack: proposedState,
+				},
+				Config: &tfprotov5.DynamicValue{
+					MsgPack: configBytes,
+				},
+			}
 
-	if !cmp.Equal(proposedVal, plannedStateVal, valueComparer) {
-		t.Fatal(cmp.Diff(proposedVal, plannedStateVal, valueComparer))
+			resp, err := server.PlanResourceChange(context.Background(), testReq)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			plannedStateVal, err := msgpack.Unmarshal(resp.PlannedState.MsgPack, schema.ImpliedType())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !cmp.Equal(proposedVal, plannedStateVal, valueComparer) {
+				t.Fatal(cmp.Diff(proposedVal, plannedStateVal, valueComparer))
+			}
+
+			//nolint:staticcheck // explicitly for this SDK
+			if testCase.ExpectedUnsafeLegacyTypeSystem != resp.UnsafeToUseLegacyTypeSystem {
+				//nolint:staticcheck // explicitly for this SDK
+				t.Fatalf("expected UnsafeLegacyTypeSystem %t, got: %t", testCase.ExpectedUnsafeLegacyTypeSystem, resp.UnsafeToUseLegacyTypeSystem)
+			}
+		})
 	}
 }
 
 func TestApplyResourceChange(t *testing.T) {
-	testCases := []struct {
-		Description  string
-		TestResource *Resource
+	t.Parallel()
+
+	testCases := map[string]struct {
+		TestResource                   *Resource
+		ExpectedUnsafeLegacyTypeSystem bool
 	}{
-		{
-			Description: "Create",
+		"Create": {
 			TestResource: &Resource{
 				SchemaVersion: 4,
 				Schema: map[string]*Schema{
@@ -615,9 +772,9 @@ func TestApplyResourceChange(t *testing.T) {
 					return nil
 				},
 			},
+			ExpectedUnsafeLegacyTypeSystem: true,
 		},
-		{
-			Description: "CreateContext",
+		"CreateContext": {
 			TestResource: &Resource{
 				SchemaVersion: 4,
 				Schema: map[string]*Schema{
@@ -631,9 +788,9 @@ func TestApplyResourceChange(t *testing.T) {
 					return nil
 				},
 			},
+			ExpectedUnsafeLegacyTypeSystem: true,
 		},
-		{
-			Description: "CreateWithoutTimeout",
+		"CreateWithoutTimeout": {
 			TestResource: &Resource{
 				SchemaVersion: 4,
 				Schema: map[string]*Schema{
@@ -647,9 +804,9 @@ func TestApplyResourceChange(t *testing.T) {
 					return nil
 				},
 			},
+			ExpectedUnsafeLegacyTypeSystem: true,
 		},
-		{
-			Description: "Create_cty",
+		"Create_cty": {
 			TestResource: &Resource{
 				SchemaVersion: 4,
 				Schema: map[string]*Schema{
@@ -672,9 +829,9 @@ func TestApplyResourceChange(t *testing.T) {
 					return nil
 				},
 			},
+			ExpectedUnsafeLegacyTypeSystem: true,
 		},
-		{
-			Description: "CreateContext_SchemaFunc",
+		"CreateContext_SchemaFunc": {
 			TestResource: &Resource{
 				SchemaFunc: func() map[string]*Schema {
 					return map[string]*Schema{
@@ -689,12 +846,32 @@ func TestApplyResourceChange(t *testing.T) {
 					return nil
 				},
 			},
+			ExpectedUnsafeLegacyTypeSystem: true,
+		},
+		"EnableLegacyTypeSystemApplyErrors": {
+			TestResource: &Resource{
+				EnableLegacyTypeSystemApplyErrors: true,
+				Schema: map[string]*Schema{
+					"foo": {
+						Type:     TypeInt,
+						Optional: true,
+					},
+				},
+				CreateContext: func(_ context.Context, rd *ResourceData, _ interface{}) diag.Diagnostics {
+					rd.SetId("bar")
+					return nil
+				},
+			},
+			ExpectedUnsafeLegacyTypeSystem: false,
 		},
 	}
 
-	for _, testCase := range testCases {
-		testCase := testCase
-		t.Run(testCase.Description, func(t *testing.T) {
+	for name, testCase := range testCases {
+		name, testCase := name, testCase
+
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
 			server := NewGRPCProviderServer(&Provider{
 				ResourcesMap: map[string]*Resource{
 					"test": testCase.TestResource,
@@ -757,6 +934,12 @@ func TestApplyResourceChange(t *testing.T) {
 			id := newStateVal.GetAttr("id").AsString()
 			if id != "bar" {
 				t.Fatalf("incorrect final state: %#v\n", newStateVal)
+			}
+
+			//nolint:staticcheck // explicitly for this SDK
+			if testCase.ExpectedUnsafeLegacyTypeSystem != resp.UnsafeToUseLegacyTypeSystem {
+				//nolint:staticcheck // explicitly for this SDK
+				t.Fatalf("expected UnsafeLegacyTypeSystem %t, got: %t", testCase.ExpectedUnsafeLegacyTypeSystem, resp.UnsafeToUseLegacyTypeSystem)
 			}
 		})
 	}
