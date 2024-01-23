@@ -714,7 +714,7 @@ type PlanResourceChangeLogicalResponse struct {
 	PlannedState                cty.Value
 	PlannedPrivate              map[string]interface{}
 	RequiresReplace             []cty.Path
-	InscanceDiff                *terraform.InstanceDiff
+	InstanceDiff                *terraform.InstanceDiff
 }
 
 func (s *GRPCProviderServer) PlanResourceChangeLogical(
@@ -824,7 +824,7 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 		}
 	}
 
-	resp.InscanceDiff = diff
+	resp.InstanceDiff = diff
 
 	if diff == nil || len(diff.Attributes) == 0 {
 		// schema.Provider.Diff returns nil if it ends up making a diff with no
