@@ -715,17 +715,60 @@ type PlanResourceChangeLogicalResponse struct {
 	InstanceDiff                *terraform.InstanceDiff
 }
 
+type planResourceChangeAdaptedRequest struct {
+	req *tfprotov5.PlanResourceChangeRequest
+	ty  cty.Type
+}
+
+func (r *planResourceChangeAdaptedRequest) TypeName() string {
+	return r.req.TypeName
+}
+
+func (r *planResourceChangeAdaptedRequest) PriorState() (cty.Value, error) {
+	return msgpack.Unmarshal(r.req.PriorState.MsgPack, r.ty)
+}
+
+func (r *planResourceChangeAdaptedRequest) ProposedNewState() (cty.Value, error) {
+	return msgpack.Unmarshal(r.req.ProposedNewState.MsgPack, r.ty)
+}
+
+func (r *planResourceChangeAdaptedRequest) HasPriorPrivate() bool {
+	return len(r.req.PriorPrivate) > 0
+}
+
+func (r *planResourceChangeAdaptedRequest) PriorPrivate() (map[string]interface{}, error) {
+	var res map[string]interface{}
+	if err := json.Unmarshal(r.req.PriorPrivate, &res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (r *planResourceChangeAdaptedRequest) Config() (cty.Value, error) {
+	return msgpack.Unmarshal(r.req.Config.MsgPack, r.ty)
+}
+
+func (r *planResourceChangeAdaptedRequest) HasProviderMeta() bool {
+	return r.req.ProviderMeta != nil
+}
+
+func (r *planResourceChangeAdaptedRequest) ProviderMeta() (cty.Value, error) {
+	return msgpack.Unmarshal(r.req.ProviderMeta.MsgPack, r.ty)
+}
+
+var _ PlanResourceChangeLogicalRequest = (*planResourceChangeAdaptedRequest)(nil)
+
 func (s *GRPCProviderServer) PlanResourceChangeLogical(
 	ctx context.Context,
 	req PlanResourceChangeLogicalRequest,
-) (*PlanResourceChangeLogicalResponse, error) {
+) *PlanResourceChangeLogicalResponse {
 	ctx = logging.InitContext(ctx)
 	resp := &PlanResourceChangeLogicalResponse{}
 
 	res, ok := s.provider.ResourcesMap[req.TypeName()]
 	if !ok {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, fmt.Errorf("unknown resource type: %s", req.TypeName()))
-		return resp, nil
+		return resp
 	}
 	schemaBlock := s.getResourceSchemaBlock(req.TypeName())
 
@@ -743,7 +786,7 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 	priorStateVal, err := req.PriorState()
 	if err != nil {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
+		return resp
 	}
 
 	create := priorStateVal.IsNull()
@@ -751,7 +794,7 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 	proposedNewStateVal, err := req.ProposedNewState()
 	if err != nil {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
+		return resp
 	}
 
 	priorPrivate := make(map[string]interface{})
@@ -759,7 +802,7 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 		m, err := req.PriorPrivate()
 		if err != nil {
 			resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-			return resp, nil
+			return resp
 		}
 		priorPrivate = m
 	}
@@ -768,19 +811,19 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 	if proposedNewStateVal.IsNull() {
 		resp.PlannedState = proposedNewStateVal
 		resp.PlannedPrivate = priorPrivate
-		return resp, nil
+		return resp
 	}
 
 	configVal, err := req.Config()
 	if err != nil {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
+		return resp
 	}
 
 	priorState, err := res.ShimInstanceStateFromValue(priorStateVal)
 	if err != nil {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
+		return resp
 	}
 	priorState.RawState = priorStateVal
 	priorState.RawPlan = proposedNewStateVal
@@ -792,7 +835,7 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 		providerSchemaVal, err := req.ProviderMeta()
 		if err != nil {
 			resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-			return resp, nil
+			return resp
 		}
 		priorState.ProviderMeta = providerSchemaVal
 	}
@@ -800,7 +843,7 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 	// Ensure there are no nulls that will cause helper/schema to panic.
 	if err := validateConfigNulls(ctx, proposedNewStateVal, nil); err != nil {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
+		return resp
 	}
 
 	// turn the proposed state into a legacy configuration
@@ -809,7 +852,7 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 	diff, err := res.SimpleDiff(ctx, priorState, cfg, s.provider.Meta())
 	if err != nil {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
+		return resp
 	}
 
 	// if this is a new instance, we need to make sure ID is going to be computed
@@ -832,7 +875,7 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 		// prior state, because we force a diff above if this is a new instance.
 		resp.PlannedState = proposedNewStateVal
 		resp.PlannedPrivate = priorPrivate
-		return resp, nil
+		return resp
 	}
 
 	if priorState == nil {
@@ -844,26 +887,26 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 
 	if err != nil {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
+		return resp
 	}
 
 	plannedStateVal, err := hcl2shim.HCL2ValueFromFlatmap(plannedAttrs, schemaBlock.ImpliedType())
 	if err != nil {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
+		return resp
 	}
 
 	plannedStateVal, err = schemaBlock.CoerceValue(plannedStateVal)
 	if err != nil {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
+		return resp
 	}
 
 	plannedStateVal = normalizeNullValues(plannedStateVal, proposedNewStateVal, false)
 
 	if err != nil {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
+		return resp
 	}
 
 	plannedStateVal = copyTimeoutValues(plannedStateVal, proposedNewStateVal)
@@ -894,12 +937,12 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 	t := &ResourceTimeout{}
 	if err := t.ConfigDecode(res, cfg); err != nil {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
+		return resp
 	}
 
 	if err := t.DiffEncode(diff); err != nil {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
+		return resp
 	}
 
 	// Now we need to store any NewExtra values, which are where any actual
@@ -943,7 +986,7 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 	requiresReplace, err := hcl2shim.RequiresReplace(requiresNew, schemaBlock.ImpliedType())
 	if err != nil {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
+		return resp
 	}
 
 	// convert these to the protocol structures
@@ -951,176 +994,20 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 		resp.RequiresReplace = append(resp.RequiresReplace, p)
 	}
 
-	return resp, nil
+	return resp
 }
 
 func (s *GRPCProviderServer) PlanResourceChange(ctx context.Context, req *tfprotov5.PlanResourceChangeRequest) (*tfprotov5.PlanResourceChangeResponse, error) {
-	ctx = logging.InitContext(ctx)
-	resp := &tfprotov5.PlanResourceChangeResponse{}
-
-	res, ok := s.provider.ResourcesMap[req.TypeName]
-	if !ok {
-		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, fmt.Errorf("unknown resource type: %s", req.TypeName))
-		return resp, nil
-	}
 	schemaBlock := s.getResourceSchemaBlock(req.TypeName)
+	request := &planResourceChangeAdaptedRequest{req, schemaBlock.ImpliedType()}
+	response := s.PlanResourceChangeLogical(ctx, request)
 
-	// This is a signal to Terraform Core that we're doing the best we can to
-	// shim the legacy type system of the SDK onto the Terraform type system
-	// but we need it to cut us some slack. This setting should not be taken
-	// forward to any new SDK implementations, since setting it prevents us
-	// from catching certain classes of provider bug that can lead to
-	// confusing downstream errors.
-	if !res.EnableLegacyTypeSystemPlanErrors {
-		//nolint:staticcheck // explicitly for this SDK
-		resp.UnsafeToUseLegacyTypeSystem = true
+	resp := &tfprotov5.PlanResourceChangeResponse{
+		Diagnostics:                 response.Diagnostics,
+		UnsafeToUseLegacyTypeSystem: response.UnsafeToUseLegacyTypeSystem,
 	}
 
-	priorStateVal, err := msgpack.Unmarshal(req.PriorState.MsgPack, schemaBlock.ImpliedType())
-	if err != nil {
-		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
-	}
-
-	create := priorStateVal.IsNull()
-
-	proposedNewStateVal, err := msgpack.Unmarshal(req.ProposedNewState.MsgPack, schemaBlock.ImpliedType())
-	if err != nil {
-		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
-	}
-
-	// We don't usually plan destroys, but this can return early in any case.
-	if proposedNewStateVal.IsNull() {
-		resp.PlannedState = req.ProposedNewState
-		resp.PlannedPrivate = req.PriorPrivate
-		return resp, nil
-	}
-
-	configVal, err := msgpack.Unmarshal(req.Config.MsgPack, schemaBlock.ImpliedType())
-	if err != nil {
-		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
-	}
-
-	priorState, err := res.ShimInstanceStateFromValue(priorStateVal)
-	if err != nil {
-		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
-	}
-	priorState.RawState = priorStateVal
-	priorState.RawPlan = proposedNewStateVal
-	priorState.RawConfig = configVal
-	priorPrivate := make(map[string]interface{})
-	if len(req.PriorPrivate) > 0 {
-		if err := json.Unmarshal(req.PriorPrivate, &priorPrivate); err != nil {
-			resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-			return resp, nil
-		}
-	}
-
-	priorState.Meta = priorPrivate
-
-	pmSchemaBlock := s.getProviderMetaSchemaBlock()
-	if pmSchemaBlock != nil && req.ProviderMeta != nil {
-		providerSchemaVal, err := msgpack.Unmarshal(req.ProviderMeta.MsgPack, pmSchemaBlock.ImpliedType())
-		if err != nil {
-			resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-			return resp, nil
-		}
-		priorState.ProviderMeta = providerSchemaVal
-	}
-
-	// Ensure there are no nulls that will cause helper/schema to panic.
-	if err := validateConfigNulls(ctx, proposedNewStateVal, nil); err != nil {
-		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
-	}
-
-	// turn the proposed state into a legacy configuration
-	cfg := terraform.NewResourceConfigShimmed(proposedNewStateVal, schemaBlock)
-
-	diff, err := res.SimpleDiff(ctx, priorState, cfg, s.provider.Meta())
-	if err != nil {
-		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
-	}
-
-	// if this is a new instance, we need to make sure ID is going to be computed
-	if create {
-		if diff == nil {
-			diff = terraform.NewInstanceDiff()
-		}
-
-		diff.Attributes["id"] = &terraform.ResourceAttrDiff{
-			NewComputed: true,
-		}
-	}
-
-	if diff == nil || len(diff.Attributes) == 0 {
-		// schema.Provider.Diff returns nil if it ends up making a diff with no
-		// changes, but our new interface wants us to return an actual change
-		// description that _shows_ there are no changes. This is always the
-		// prior state, because we force a diff above if this is a new instance.
-		resp.PlannedState = req.PriorState
-		resp.PlannedPrivate = req.PriorPrivate
-		return resp, nil
-	}
-
-	if priorState == nil {
-		priorState = &terraform.InstanceState{}
-	}
-
-	// now we need to apply the diff to the prior state, so get the planned state
-	plannedAttrs, err := diff.Apply(priorState.Attributes, schemaBlock)
-
-	if err != nil {
-		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
-	}
-
-	plannedStateVal, err := hcl2shim.HCL2ValueFromFlatmap(plannedAttrs, schemaBlock.ImpliedType())
-	if err != nil {
-		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
-	}
-
-	plannedStateVal, err = schemaBlock.CoerceValue(plannedStateVal)
-	if err != nil {
-		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
-	}
-
-	plannedStateVal = normalizeNullValues(plannedStateVal, proposedNewStateVal, false)
-
-	if err != nil {
-		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
-	}
-
-	plannedStateVal = copyTimeoutValues(plannedStateVal, proposedNewStateVal)
-
-	// The old SDK code has some imprecisions that cause it to sometimes
-	// generate differences that the SDK itself does not consider significant
-	// but Terraform Core would. To avoid producing weird do-nothing diffs
-	// in that case, we'll check if the provider as produced something we
-	// think is "equivalent" to the prior state and just return the prior state
-	// itself if so, thus ensuring that Terraform Core will treat this as
-	// a no-op. See the docs for ValuesSDKEquivalent for some caveats on its
-	// accuracy.
-	forceNoChanges := false
-	if hcl2shim.ValuesSDKEquivalent(priorStateVal, plannedStateVal) {
-		plannedStateVal = priorStateVal
-		forceNoChanges = true
-	}
-
-	// if this was creating the resource, we need to set any remaining computed
-	// fields
-	if create {
-		plannedStateVal = SetUnknowns(plannedStateVal, schemaBlock)
-	}
-
-	plannedMP, err := msgpack.Marshal(plannedStateVal, schemaBlock.ImpliedType())
+	plannedMP, err := msgpack.Marshal(response.PlannedState, schemaBlock.ImpliedType())
 	if err != nil {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
 		return resp, nil
@@ -1129,70 +1016,13 @@ func (s *GRPCProviderServer) PlanResourceChange(ctx context.Context, req *tfprot
 		MsgPack: plannedMP,
 	}
 
-	// encode any timeouts into the diff Meta
-	t := &ResourceTimeout{}
-	if err := t.ConfigDecode(res, cfg); err != nil {
-		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
-	}
-
-	if err := t.DiffEncode(diff); err != nil {
-		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
-	}
-
-	// Now we need to store any NewExtra values, which are where any actual
-	// StateFunc modified config fields are hidden.
-	privateMap := diff.Meta
-	if privateMap == nil {
-		privateMap = map[string]interface{}{}
-	}
-
-	newExtra := map[string]interface{}{}
-
-	for k, v := range diff.Attributes {
-		if v.NewExtra != nil {
-			newExtra[k] = v.NewExtra
-		}
-	}
-	privateMap[newExtraKey] = newExtra
-
-	// the Meta field gets encoded into PlannedPrivate
-	plannedPrivate, err := json.Marshal(privateMap)
-	if err != nil {
-		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
-	}
-	resp.PlannedPrivate = plannedPrivate
-
-	// collect the attributes that require instance replacement, and convert
-	// them to cty.Paths.
-	var requiresNew []string
-	if !forceNoChanges {
-		for attr, d := range diff.Attributes {
-			if d.RequiresNew {
-				requiresNew = append(requiresNew, attr)
-			}
-		}
-	}
-
-	// If anything requires a new resource already, or the "id" field indicates
-	// that we will be creating a new resource, then we need to add that to
-	// RequiresReplace so that core can tell if the instance is being replaced
-	// even if changes are being suppressed via "ignore_changes".
-	id := plannedStateVal.GetAttr("id")
-	if len(requiresNew) > 0 || id.IsNull() || !id.IsKnown() {
-		requiresNew = append(requiresNew, "id")
-	}
-
-	requiresReplace, err := hcl2shim.RequiresReplace(requiresNew, schemaBlock.ImpliedType())
+	resp.PlannedPrivate, err = json.Marshal(response.PlannedPrivate)
 	if err != nil {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
 		return resp, nil
 	}
 
-	// convert these to the protocol structures
-	for _, p := range requiresReplace {
+	for _, p := range response.RequiresReplace {
 		resp.RequiresReplace = append(resp.RequiresReplace, pathToAttributePath(p))
 	}
 
