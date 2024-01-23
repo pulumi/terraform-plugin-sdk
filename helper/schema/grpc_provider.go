@@ -704,8 +704,6 @@ type PlanResourceChangeLogicalRequest interface {
 	Config() (cty.Value, error)
 	HasProviderMeta() bool
 	ProviderMeta() (cty.Value, error)
-
-	CopyPlanTo(*PlanResourceChangeLogicalResponse)
 }
 
 type PlanResourceChangeLogicalResponse struct {
@@ -756,9 +754,20 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 		return resp, nil
 	}
 
+	priorPrivate := make(map[string]interface{})
+	if req.HasPriorPrivate() {
+		m, err := req.PriorPrivate()
+		if err != nil {
+			resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
+			return resp, nil
+		}
+		priorPrivate = m
+	}
+
 	// We don't usually plan destroys, but this can return early in any case.
 	if proposedNewStateVal.IsNull() {
-		req.CopyPlanTo(resp)
+		resp.PlannedState = proposedNewStateVal
+		resp.PlannedPrivate = priorPrivate
 		return resp, nil
 	}
 
@@ -776,16 +785,6 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 	priorState.RawState = priorStateVal
 	priorState.RawPlan = proposedNewStateVal
 	priorState.RawConfig = configVal
-	priorPrivate := make(map[string]interface{})
-	if req.HasPriorPrivate() {
-		m, err := req.PriorPrivate()
-		if err != nil {
-			resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-			return resp, nil
-		}
-		priorPrivate = m
-	}
-
 	priorState.Meta = priorPrivate
 
 	pmSchemaBlock := s.getProviderMetaSchemaBlock()
@@ -831,7 +830,8 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 		// changes, but our new interface wants us to return an actual change
 		// description that _shows_ there are no changes. This is always the
 		// prior state, because we force a diff above if this is a new instance.
-		req.CopyPlanTo(resp)
+		resp.PlannedState = proposedNewStateVal
+		resp.PlannedPrivate = priorPrivate
 		return resp, nil
 	}
 
