@@ -704,6 +704,7 @@ type PlanResourceChangeLogicalRequest interface {
 	Config() (cty.Value, error)
 	HasProviderMeta() bool
 	ProviderMeta() (cty.Value, error)
+	TransformInstanceDiff(*terraform.InstanceDiff) *terraform.InstanceDiff
 }
 
 type PlanResourceChangeLogicalResponse struct {
@@ -754,6 +755,12 @@ func (r *planResourceChangeAdaptedRequest) HasProviderMeta() bool {
 
 func (r *planResourceChangeAdaptedRequest) ProviderMeta() (cty.Value, error) {
 	return msgpack.Unmarshal(r.req.ProviderMeta.MsgPack, r.ty)
+}
+
+func (r *planResourceChangeAdaptedRequest) TransformInstanceDiff(
+	d *terraform.InstanceDiff,
+) *terraform.InstanceDiff {
+	return d
 }
 
 var _ PlanResourceChangeLogicalRequest = (*planResourceChangeAdaptedRequest)(nil)
@@ -866,7 +873,7 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 		}
 	}
 
-	resp.InstanceDiff = diff
+	resp.InstanceDiff = req.TransformInstanceDiff(diff)
 
 	if diff == nil || len(diff.Attributes) == 0 {
 		// schema.Provider.Diff returns nil if it ends up making a diff with no
