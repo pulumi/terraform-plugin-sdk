@@ -705,15 +705,24 @@ type PlanResourceChangeLogicalRequest interface {
 	HasProviderMeta() bool
 	ProviderMeta() (cty.Value, error)
 
-	CopyPlanTo(*tfprotov5.PlanResourceChangeResponse)
+	CopyPlanTo(*PlanResourceChangeLogicalResponse)
+}
+
+type PlanResourceChangeLogicalResponse struct {
+	Diagnostics                 []*tfprotov5.Diagnostic
+	UnsafeToUseLegacyTypeSystem bool
+	PlannedState                cty.Value
+	PlannedPrivate              map[string]interface{}
+	RequiresReplace             []cty.Path
+	InscanceDiff                *terraform.InstanceDiff
 }
 
 func (s *GRPCProviderServer) PlanResourceChangeLogical(
 	ctx context.Context,
 	req PlanResourceChangeLogicalRequest,
-) (*tfprotov5.PlanResourceChangeResponse, error) {
+) (*PlanResourceChangeLogicalResponse, error) {
 	ctx = logging.InitContext(ctx)
-	resp := &tfprotov5.PlanResourceChangeResponse{}
+	resp := &PlanResourceChangeLogicalResponse{}
 
 	res, ok := s.provider.ResourcesMap[req.TypeName()]
 	if !ok {
@@ -815,6 +824,8 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 		}
 	}
 
+	resp.InscanceDiff = diff
+
 	if diff == nil || len(diff.Attributes) == 0 {
 		// schema.Provider.Diff returns nil if it ends up making a diff with no
 		// changes, but our new interface wants us to return an actual change
@@ -877,14 +888,7 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 		plannedStateVal = SetUnknowns(plannedStateVal, schemaBlock)
 	}
 
-	plannedMP, err := msgpack.Marshal(plannedStateVal, schemaBlock.ImpliedType())
-	if err != nil {
-		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
-	}
-	resp.PlannedState = &tfprotov5.DynamicValue{
-		MsgPack: plannedMP,
-	}
+	resp.PlannedState = plannedStateVal
 
 	// encode any timeouts into the diff Meta
 	t := &ResourceTimeout{}
@@ -914,13 +918,7 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 	}
 	privateMap[newExtraKey] = newExtra
 
-	// the Meta field gets encoded into PlannedPrivate
-	plannedPrivate, err := json.Marshal(privateMap)
-	if err != nil {
-		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
-		return resp, nil
-	}
-	resp.PlannedPrivate = plannedPrivate
+	resp.PlannedPrivate = privateMap
 
 	// collect the attributes that require instance replacement, and convert
 	// them to cty.Paths.
@@ -950,7 +948,7 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 
 	// convert these to the protocol structures
 	for _, p := range requiresReplace {
-		resp.RequiresReplace = append(resp.RequiresReplace, pathToAttributePath(p))
+		resp.RequiresReplace = append(resp.RequiresReplace, p)
 	}
 
 	return resp, nil
