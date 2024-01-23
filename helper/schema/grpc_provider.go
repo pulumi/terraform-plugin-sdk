@@ -695,19 +695,32 @@ func (s *GRPCProviderServer) ReadResource(ctx context.Context, req *tfprotov5.Re
 	return resp, nil
 }
 
+type PlanResourceChangeLogicalRequest interface {
+	TypeName() string
+	PriorState() (cty.Value, error)
+	ProposedNewState() (cty.Value, error)
+	HasPriorPrivate() bool
+	PriorPrivate() (map[string]interface{}, error)
+	Config() (cty.Value, error)
+	HasProviderMeta() bool
+	ProviderMeta() (cty.Value, error)
+
+	CopyPlanTo(*tfprotov5.PlanResourceChangeResponse)
+}
+
 func (s *GRPCProviderServer) PlanResourceChangeLogical(
 	ctx context.Context,
-	req *tfprotov5.PlanResourceChangeRequest,
+	req PlanResourceChangeLogicalRequest,
 ) (*tfprotov5.PlanResourceChangeResponse, error) {
 	ctx = logging.InitContext(ctx)
 	resp := &tfprotov5.PlanResourceChangeResponse{}
 
-	res, ok := s.provider.ResourcesMap[req.TypeName]
+	res, ok := s.provider.ResourcesMap[req.TypeName()]
 	if !ok {
-		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, fmt.Errorf("unknown resource type: %s", req.TypeName))
+		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, fmt.Errorf("unknown resource type: %s", req.TypeName()))
 		return resp, nil
 	}
-	schemaBlock := s.getResourceSchemaBlock(req.TypeName)
+	schemaBlock := s.getResourceSchemaBlock(req.TypeName())
 
 	// This is a signal to Terraform Core that we're doing the best we can to
 	// shim the legacy type system of the SDK onto the Terraform type system
@@ -720,7 +733,7 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 		resp.UnsafeToUseLegacyTypeSystem = true
 	}
 
-	priorStateVal, err := msgpack.Unmarshal(req.PriorState.MsgPack, schemaBlock.ImpliedType())
+	priorStateVal, err := req.PriorState()
 	if err != nil {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
 		return resp, nil
@@ -728,7 +741,7 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 
 	create := priorStateVal.IsNull()
 
-	proposedNewStateVal, err := msgpack.Unmarshal(req.ProposedNewState.MsgPack, schemaBlock.ImpliedType())
+	proposedNewStateVal, err := req.ProposedNewState()
 	if err != nil {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
 		return resp, nil
@@ -736,12 +749,11 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 
 	// We don't usually plan destroys, but this can return early in any case.
 	if proposedNewStateVal.IsNull() {
-		resp.PlannedState = req.ProposedNewState
-		resp.PlannedPrivate = req.PriorPrivate
+		req.CopyPlanTo(resp)
 		return resp, nil
 	}
 
-	configVal, err := msgpack.Unmarshal(req.Config.MsgPack, schemaBlock.ImpliedType())
+	configVal, err := req.Config()
 	if err != nil {
 		resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
 		return resp, nil
@@ -756,18 +768,20 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 	priorState.RawPlan = proposedNewStateVal
 	priorState.RawConfig = configVal
 	priorPrivate := make(map[string]interface{})
-	if len(req.PriorPrivate) > 0 {
-		if err := json.Unmarshal(req.PriorPrivate, &priorPrivate); err != nil {
+	if req.HasPriorPrivate() {
+		m, err := req.PriorPrivate()
+		if err != nil {
 			resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
 			return resp, nil
 		}
+		priorPrivate = m
 	}
 
 	priorState.Meta = priorPrivate
 
 	pmSchemaBlock := s.getProviderMetaSchemaBlock()
-	if pmSchemaBlock != nil && req.ProviderMeta != nil {
-		providerSchemaVal, err := msgpack.Unmarshal(req.ProviderMeta.MsgPack, pmSchemaBlock.ImpliedType())
+	if pmSchemaBlock != nil && req.HasProviderMeta() {
+		providerSchemaVal, err := req.ProviderMeta()
 		if err != nil {
 			resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
 			return resp, nil
@@ -806,8 +820,7 @@ func (s *GRPCProviderServer) PlanResourceChangeLogical(
 		// changes, but our new interface wants us to return an actual change
 		// description that _shows_ there are no changes. This is always the
 		// prior state, because we force a diff above if this is a new instance.
-		resp.PlannedState = req.PriorState
-		resp.PlannedPrivate = req.PriorPrivate
+		req.CopyPlanTo(resp)
 		return resp, nil
 	}
 
