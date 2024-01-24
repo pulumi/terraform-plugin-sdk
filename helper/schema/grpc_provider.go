@@ -717,12 +717,13 @@ type PlanResourceChangeLogicalResponse struct {
 }
 
 type SimplePlanResourceChangeLogicalRequest struct {
-	ResourceName        string
-	ConfigVal           cty.Value
-	PriorStateVal       cty.Value
-	ProposedNewStateVal cty.Value
-	ProviderMetaVal     *cty.Value
-	PriorPrivateState   map[string]interface{}
+	ResourceName          string
+	ConfigVal             cty.Value
+	PriorStateVal         cty.Value
+	ProposedNewStateVal   cty.Value
+	ProviderMetaVal       *cty.Value
+	PriorPrivateState     map[string]interface{}
+	InstanceDiffTransform func(*terraform.InstanceDiff) *terraform.InstanceDiff
 }
 
 var _ PlanResourceChangeLogicalRequest = (*SimplePlanResourceChangeLogicalRequest)(nil)
@@ -765,6 +766,9 @@ func (r *SimplePlanResourceChangeLogicalRequest) ProviderMeta() (cty.Value, erro
 func (r *SimplePlanResourceChangeLogicalRequest) TransformInstanceDiff(
 	d *terraform.InstanceDiff,
 ) *terraform.InstanceDiff {
+	if r.InstanceDiffTransform != nil {
+		return r.InstanceDiffTransform(d)
+	}
 	return d
 }
 
