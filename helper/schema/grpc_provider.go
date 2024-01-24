@@ -716,6 +716,58 @@ type PlanResourceChangeLogicalResponse struct {
 	InstanceDiff                *terraform.InstanceDiff
 }
 
+type SimplePlanResourceChangeLogicalRequest struct {
+	ResourceName        string
+	ConfigVal           cty.Value
+	PriorStateVal       cty.Value
+	ProposedNewStateVal cty.Value
+	ProviderMetaVal     *cty.Value
+	PriorPrivateState   map[string]interface{}
+}
+
+var _ PlanResourceChangeLogicalRequest = (*SimplePlanResourceChangeLogicalRequest)(nil)
+
+func (r *SimplePlanResourceChangeLogicalRequest) TypeName() string {
+	return r.ResourceName
+}
+
+func (r *SimplePlanResourceChangeLogicalRequest) PriorState() (cty.Value, error) {
+	return r.PriorStateVal, nil
+}
+
+func (r *SimplePlanResourceChangeLogicalRequest) ProposedNewState() (cty.Value, error) {
+	return r.ProposedNewStateVal, nil
+}
+
+func (r *SimplePlanResourceChangeLogicalRequest) HasPriorPrivate() bool {
+	return len(r.PriorPrivateState) > 0
+}
+
+func (r *SimplePlanResourceChangeLogicalRequest) PriorPrivate() (map[string]interface{}, error) {
+	return r.PriorPrivateState, nil
+}
+
+func (r *SimplePlanResourceChangeLogicalRequest) Config() (cty.Value, error) {
+	return r.ConfigVal, nil
+}
+
+func (r *SimplePlanResourceChangeLogicalRequest) HasProviderMeta() bool {
+	return r.ProviderMetaVal != nil
+}
+
+func (r *SimplePlanResourceChangeLogicalRequest) ProviderMeta() (cty.Value, error) {
+	if r.ProviderMetaVal == nil {
+		return cty.NilVal, fmt.Errorf("no ProviderMeta value available")
+	}
+	return *r.ProviderMetaVal, nil
+}
+
+func (r *SimplePlanResourceChangeLogicalRequest) TransformInstanceDiff(
+	d *terraform.InstanceDiff,
+) *terraform.InstanceDiff {
+	return d
+}
+
 type planResourceChangeAdaptedRequest struct {
 	req *tfprotov5.PlanResourceChangeRequest
 	ty  cty.Type
