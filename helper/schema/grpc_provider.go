@@ -695,9 +695,38 @@ func (s *GRPCProviderServer) ReadResource(ctx context.Context, req *tfprotov5.Re
 	return resp, nil
 }
 
-func (s *GRPCProviderServer) PlanResourceChange(ctx context.Context, req *tfprotov5.PlanResourceChangeRequest) (*tfprotov5.PlanResourceChangeResponse, error) {
+func (s *GRPCProviderServer) PlanResourceChange(
+	ctx context.Context,
+	req *tfprotov5.PlanResourceChangeRequest,
+) (*tfprotov5.PlanResourceChangeResponse, error) {
+	if req == nil {
+		panic("req cannot be nil")
+	}
+	resp, err := s.PlanResourceChangeExtra(ctx, &PlanResourceChangeExtraRequest{
+		PlanResourceChangeRequest: *req,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &resp.PlanResourceChangeResponse, nil
+}
+
+type PlanResourceChangeExtraRequest struct {
+	tfprotov5.PlanResourceChangeRequest
+	TransformInstanceDiff func(*terraform.InstanceDiff) *terraform.InstanceDiff
+}
+
+type PlanResourceChangeExtraResponse struct {
+	tfprotov5.PlanResourceChangeResponse
+	InstanceDiff *terraform.InstanceDiff
+}
+
+func (s *GRPCProviderServer) PlanResourceChangeExtra(
+	ctx context.Context,
+	req *PlanResourceChangeExtraRequest,
+) (*PlanResourceChangeExtraResponse, error) {
 	ctx = logging.InitContext(ctx)
-	resp := &tfprotov5.PlanResourceChangeResponse{}
+	resp := &PlanResourceChangeExtraResponse{}
 
 	res, ok := s.provider.ResourcesMap[req.TypeName]
 	if !ok {
@@ -796,6 +825,12 @@ func (s *GRPCProviderServer) PlanResourceChange(ctx context.Context, req *tfprot
 		diff.Attributes["id"] = &terraform.ResourceAttrDiff{
 			NewComputed: true,
 		}
+	}
+
+	if req.TransformInstanceDiff != nil {
+		resp.InstanceDiff = req.TransformInstanceDiff(diff)
+	} else {
+		resp.InstanceDiff = diff
 	}
 
 	if diff == nil || len(diff.Attributes) == 0 {
