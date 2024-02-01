@@ -244,8 +244,7 @@ func (p *Provider) Validate(c *terraform.ResourceConfig) diag.Diagnostics {
 // The primary use case of this call is to check that the required keys
 // are set and that the general structure is correct.
 func (p *Provider) ValidateResource(
-	t string, c *terraform.ResourceConfig,
-) diag.Diagnostics {
+	t string, c *terraform.ResourceConfig) diag.Diagnostics {
 	r, ok := p.ResourcesMap[t]
 	if !ok {
 		return []diag.Diagnostic{
@@ -362,8 +361,7 @@ func (p *Provider) Resources() []terraform.ResourceType {
 func (p *Provider) ImportState(
 	ctx context.Context,
 	info *terraform.InstanceInfo,
-	id string,
-) ([]*terraform.InstanceState, error) {
+	id string) ([]*terraform.InstanceState, error) {
 	// Find the resource
 	r, ok := p.ResourcesMap[info.Type]
 	if !ok {
@@ -443,8 +441,7 @@ func (p *Provider) ImportState(
 // The primary use case of this call is to check that the required keys
 // are set and that the general structure is correct.
 func (p *Provider) ValidateDataSource(
-	t string, c *terraform.ResourceConfig,
-) diag.Diagnostics {
+	t string, c *terraform.ResourceConfig) diag.Diagnostics {
 	r, ok := p.DataSourcesMap[t]
 	if !ok {
 		return []diag.Diagnostic{
