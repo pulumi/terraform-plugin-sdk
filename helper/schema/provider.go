@@ -143,15 +143,17 @@ func (p *Provider) InternalValidate() error {
 		}
 	}
 
-	for k, r := range p.ResourcesMap {
-		if err := r.InternalValidate(nil, true); err != nil {
-			validationErrors = multierror.Append(validationErrors, fmt.Errorf("resource %s: %s", k, err))
+	if currentRuntimeStage == buildingProviderStage {
+		for k, r := range p.ResourcesMap {
+			if err := r.InternalValidate(nil, true); err != nil {
+				validationErrors = multierror.Append(validationErrors, fmt.Errorf("resource %s: %s", k, err))
+			}
 		}
-	}
 
-	for k, r := range p.DataSourcesMap {
-		if err := r.InternalValidate(nil, false); err != nil {
-			validationErrors = multierror.Append(validationErrors, fmt.Errorf("data source %s: %s", k, err))
+		for k, r := range p.DataSourcesMap {
+			if err := r.InternalValidate(nil, false); err != nil {
+				validationErrors = multierror.Append(validationErrors, fmt.Errorf("data source %s: %s", k, err))
+			}
 		}
 	}
 
