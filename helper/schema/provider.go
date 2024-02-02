@@ -143,17 +143,15 @@ func (p *Provider) InternalValidate() error {
 		}
 	}
 
-	if currentRuntimeStage == buildingProviderStage {
-		for k, r := range p.ResourcesMap {
-			if err := r.InternalValidate(nil, true); err != nil {
-				validationErrors = multierror.Append(validationErrors, fmt.Errorf("resource %s: %s", k, err))
-			}
+	for k, r := range p.ResourcesMap {
+		if err := r.InternalValidate(nil, true); err != nil {
+			validationErrors = multierror.Append(validationErrors, fmt.Errorf("resource %s: %s", k, err))
 		}
+	}
 
-		for k, r := range p.DataSourcesMap {
-			if err := r.InternalValidate(nil, false); err != nil {
-				validationErrors = multierror.Append(validationErrors, fmt.Errorf("data source %s: %s", k, err))
-			}
+	for k, r := range p.DataSourcesMap {
+		if err := r.InternalValidate(nil, false); err != nil {
+			validationErrors = multierror.Append(validationErrors, fmt.Errorf("data source %s: %s", k, err))
 		}
 	}
 
@@ -210,6 +208,12 @@ func (p *Provider) GetSchema(req *terraform.ProviderSchemaRequest) (*terraform.P
 		DataSources:   dataSources,
 	}, nil
 }
+
+// This controls if we should validate the provider schema when validating the config
+// for the provider. This is useful for testing the provider schema itself.
+// This should only be used during tfgen and for testing since
+// the schema validation could take a long time for some resources.
+var RunProviderInternalValidation bool
 
 // Validate is called once at the beginning with the raw configuration
 // (no interpolation done) and can return diagnostics
