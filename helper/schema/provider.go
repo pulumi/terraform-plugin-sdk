@@ -209,6 +209,12 @@ func (p *Provider) GetSchema(req *terraform.ProviderSchemaRequest) (*terraform.P
 	}, nil
 }
 
+// This controls if we should validate the provider schema when validating the config
+// for the provider. This is useful for testing the provider schema itself.
+// This should only be used during tfgen and for testing since
+// the schema validation could take a long time for some resources.
+var RunProviderInternalValidation bool
+
 // Validate is called once at the beginning with the raw configuration
 // (no interpolation done) and can return diagnostics
 //
@@ -219,15 +225,17 @@ func (p *Provider) GetSchema(req *terraform.ProviderSchemaRequest) (*terraform.P
 // The primary use case of this call is to check that required keys are
 // set.
 func (p *Provider) Validate(c *terraform.ResourceConfig) diag.Diagnostics {
-	if err := p.InternalValidate(); err != nil {
-		return []diag.Diagnostic{
-			{
-				Severity: diag.Error,
-				Summary:  "InternalValidate",
-				Detail: fmt.Sprintf("Internal validation of the provider failed! This is always a bug\n"+
-					"with the provider itself, and not a user issue. Please report\n"+
-					"this bug:\n\n%s", err),
-			},
+	if RunProviderInternalValidation {
+		if err := p.InternalValidate(); err != nil {
+			return []diag.Diagnostic{
+				{
+					Severity: diag.Error,
+					Summary:  "InternalValidate",
+					Detail: fmt.Sprintf("Internal validation of the provider failed! This is always a bug\n"+
+						"with the provider itself, and not a user issue. Please report\n"+
+						"this bug:\n\n%s", err),
+				},
+			}
 		}
 	}
 
