@@ -225,15 +225,17 @@ var RunProviderInternalValidation bool
 // The primary use case of this call is to check that required keys are
 // set.
 func (p *Provider) Validate(c *terraform.ResourceConfig) diag.Diagnostics {
-	if err := p.InternalValidate(); err != nil {
-		return []diag.Diagnostic{
-			{
-				Severity: diag.Error,
-				Summary:  "InternalValidate",
-				Detail: fmt.Sprintf("Internal validation of the provider failed! This is always a bug\n"+
-					"with the provider itself, and not a user issue. Please report\n"+
-					"this bug:\n\n%s", err),
-			},
+	if RunProviderInternalValidation {
+		if err := p.InternalValidate(); err != nil {
+			return []diag.Diagnostic{
+				{
+					Severity: diag.Error,
+					Summary:  "InternalValidate",
+					Detail: fmt.Sprintf("Internal validation of the provider failed! This is always a bug\n"+
+						"with the provider itself, and not a user issue. Please report\n"+
+						"this bug:\n\n%s", err),
+				},
+			}
 		}
 	}
 
