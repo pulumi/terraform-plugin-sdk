@@ -1,3 +1,33 @@
+## 2.33.0 (February 23, 2024)
+
+NOTES:
+
+* helper/schema: While this Go module will not receive support for provider defined functions, the provider server is updated to handle the new operation, which will be required to prevent errors when updating terraform-plugin-framework or terraform-plugin-mux in the future ([#1316](https://github.com/hashicorp/terraform-plugin-sdk/issues/1316))
+
+## 2.32.0 (January 29, 2024)
+
+NOTES:
+
+* helper/schema: While this Go module will not receive support for moving resource state across resource types, the provider server is updated to handle the new operation, which will be required to prevent errors when updating terraform-plugin-framework or terraform-plugin-mux in the future. ([#1307](https://github.com/hashicorp/terraform-plugin-sdk/issues/1307))
+
+## 2.31.0 (December 14, 2023)
+
+NOTES:
+
+* helper/schema: While this Go module will not receive support for provider-defined functions, the provider server is updated to handle the new operations, which will be required to prevent errors when updating terraform-plugin-framework or terraform-plugin-mux in the future. ([#1288](https://github.com/hashicorp/terraform-plugin-sdk/issues/1288))
+
+## 2.30.0 (November 09, 2023)
+
+NOTES:
+
+* meta: The `SDKVersion` variable, `SDKPrerelease` variable, and `SDKVersionString()` function have been deprecated. Use the Go standard library `runtime/debug` package build information instead. ([#1257](https://github.com/hashicorp/terraform-plugin-sdk/issues/1257))
+
+BUG FIXES:
+
+* meta: Fixed version in `SDKVersion` variable and `SDKVersionString()` function ([#1257](https://github.com/hashicorp/terraform-plugin-sdk/issues/1257))
+* helper/schema: Ensured `(ResourceData).GetRawConfig()` data is populated for `Provider.ConfigureFunc` and `Provider.ConfigureContextFunc` ([#1270](https://github.com/hashicorp/terraform-plugin-sdk/issues/1270))
+* helper/schema: Ensured `(ResourceData).GetOkExists()` second result is `true` when configuration contains zero-value data in `Provider.ConfigureFunc` and `Provider.ConfigureContextFunc` ([#1270](https://github.com/hashicorp/terraform-plugin-sdk/issues/1270))
+
 ## 2.29.0 (September 06, 2023)
 
 NOTES:
