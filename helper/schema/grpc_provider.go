@@ -655,7 +655,7 @@ func (s *GRPCProviderServer) ReadResource(ctx context.Context, req *tfprotov5.Re
 
 	private := make(map[string]interface{})
 	if len(req.Private) > 0 {
-		if err := unmarshalJSON(req.Private, &private); err != nil {
+		if err := json.Unmarshal(req.Private, &private); err != nil {
 			resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
 			return resp, nil
 		}
@@ -805,7 +805,7 @@ func (s *GRPCProviderServer) PlanResourceChangeExtra(
 	priorState.RawConfig = configVal
 	priorPrivate := make(map[string]interface{})
 	if len(req.PriorPrivate) > 0 {
-		if err := unmarshalJSON(req.PriorPrivate, &priorPrivate); err != nil {
+		if err := json.Unmarshal(req.PriorPrivate, &priorPrivate); err != nil {
 			resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
 			return resp, nil
 		}
@@ -1037,7 +1037,7 @@ func (s *GRPCProviderServer) ApplyResourceChange(ctx context.Context, req *tfpro
 
 	private := make(map[string]interface{})
 	if len(req.PlannedPrivate) > 0 {
-		if err := unmarshalJSON(req.PlannedPrivate, &private); err != nil {
+		if err := json.Unmarshal(req.PlannedPrivate, &private); err != nil {
 			resp.Diagnostics = convert.AppendProtoDiag(ctx, resp.Diagnostics, err)
 			return resp, nil
 		}
