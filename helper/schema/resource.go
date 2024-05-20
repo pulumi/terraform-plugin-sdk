@@ -594,11 +594,6 @@ type Resource struct {
 	//
 	// See github.com/hashicorp/terraform-plugin-sdk/issues/655 for more
 	// details.
-	//
-	// Fork: We only add this for backward compatibility purposes. This
-	// bool is not used in any of the codebase and serves only when a resource
-	// has opted into `UseJSONNumber` in the resource definition. This only
-	// is in place to allow providers to compile.
 	UseJSONNumber bool
 
 	// EnableLegacyTypeSystemApplyErrors when enabled will prevent the SDK from
