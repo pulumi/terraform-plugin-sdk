@@ -1,3 +1,22 @@
+## 2.35.0 (October 31, 2024)
+
+NOTES:
+
+* all: This Go module has been updated to Go 1.22 per the [Go support policy](https://go.dev/doc/devel/release#policy). It is recommended to review the [Go 1.22 release notes](https://go.dev/doc/go1.22) before upgrading. Any consumers building on earlier Go versions may experience errors. ([#1373](https://github.com/hashicorp/terraform-plugin-sdk/issues/1373))
+* helper/schema: While this Go module will not receive support for ephemeral resource types, the provider server is updated to handle the new operations, which will be required to prevent errors when updating `terraform-plugin-framework` or `terraform-plugin-mux` in the future. ([#1390](https://github.com/hashicorp/terraform-plugin-sdk/issues/1390))
+
+## 2.34.0 (May 17, 2024)
+
+NOTES:
+
+* all: The `v2.33.0` release updated this Go module to Go 1.21 per the [Go support policy](https://go.dev/doc/devel/release#policy). It is recommended to review the [Go 1.21 release notes](https://go.dev/doc/go1.21) before upgrading. Any consumers building on earlier Go versions may experience errors ([#1318](https://github.com/hashicorp/terraform-plugin-sdk/issues/1318))
+* This release contains support for deferred actions, which is an experimental feature only available in prerelease builds of Terraform 1.9 and later. This functionality is subject to change and is not protected by version compatibility guarantees. ([#1335](https://github.com/hashicorp/terraform-plugin-sdk/issues/1335))
+
+FEATURES:
+
+* helper/schema: Added `(Provider).ConfigureProvider` function for configuring providers that support additional features, such as deferred actions. ([#1335](https://github.com/hashicorp/terraform-plugin-sdk/issues/1335))
+* helper/schema: Added `(Resource).ResourceBehavior` to allow additional control over deferred action behavior during plan modification. ([#1335](https://github.com/hashicorp/terraform-plugin-sdk/issues/1335))
+
 ## 2.33.0 (February 23, 2024)
 
 NOTES:
