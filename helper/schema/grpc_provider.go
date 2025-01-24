@@ -373,7 +373,7 @@ func (s *GRPCProviderServer) UpgradeResourceState(ctx context.Context, req *tfpr
 	}
 
 	// The provider isn't required to clean out removed fields
-	RemoveAttributes(ctx, jsonMap, schemaBlock.ImpliedType())
+	s.removeAttributes(ctx, jsonMap, schemaBlock.ImpliedType())
 
 	// now we need to turn the state into the default json representation, so
 	// that it can be re-decoded using the actual schema.
@@ -519,7 +519,7 @@ func (s *GRPCProviderServer) removeAttributes(ctx context.Context, v interface{}
 		if ty.IsListType() || ty.IsSetType() {
 			eTy := ty.ElementType()
 			for _, eV := range v {
-				RemoveAttributes(ctx, eV, eTy)
+				s.removeAttributes(ctx, eV, eTy)
 			}
 		}
 		return
@@ -528,7 +528,7 @@ func (s *GRPCProviderServer) removeAttributes(ctx context.Context, v interface{}
 		if ty.IsMapType() {
 			eTy := ty.ElementType()
 			for _, eV := range v {
-				RemoveAttributes(ctx, eV, eTy)
+				s.removeAttributes(ctx, eV, eTy)
 			}
 			return
 		}
@@ -554,7 +554,7 @@ func (s *GRPCProviderServer) removeAttributes(ctx context.Context, v interface{}
 				continue
 			}
 
-			RemoveAttributes(ctx, attrV, attrTy)
+			s.removeAttributes(ctx, attrV, attrTy)
 		}
 	}
 }
