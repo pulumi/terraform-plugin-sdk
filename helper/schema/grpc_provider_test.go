@@ -8088,6 +8088,18 @@ func TestPlanResourceChange_bigint(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	config, err := schema.CoerceValue(cty.ObjectVal(map[string]cty.Value{
+		"id":  cty.NullVal(cty.String),
+		"foo": cty.MustParseNumberVal("7227701560655103598"),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configBytes, err := msgpack.Marshal(config, schema.ImpliedType())
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	testReq := &tfprotov5.PlanResourceChangeRequest{
 		TypeName: "test",
 		PriorState: &tfprotov5.DynamicValue{
@@ -8095,6 +8107,9 @@ func TestPlanResourceChange_bigint(t *testing.T) {
 		},
 		ProposedNewState: &tfprotov5.DynamicValue{
 			MsgPack: proposedState,
+		},
+		Config: &tfprotov5.DynamicValue{
+			MsgPack: configBytes,
 		},
 	}
 
