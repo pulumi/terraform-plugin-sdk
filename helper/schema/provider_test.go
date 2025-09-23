@@ -1744,6 +1744,13 @@ func TestProviderDataSources(t *testing.T) {
 }
 
 func TestProviderValidate(t *testing.T) {
+	// Enable provider schema validation for this test
+	originalValue := RunProviderInternalValidation
+	RunProviderInternalValidation = true
+	defer func() {
+		RunProviderInternalValidation = originalValue
+	}()
+
 	cases := []struct {
 		P      *Provider
 		Config map[string]interface{}
