@@ -2,6 +2,19 @@
 
 This is a fork of Hashicorp's [terraform-plugin-sdk](https://github.com/hashicorp/terraform-plugin-sdk).
 
+Key Differences:
+
+- Exported functions using helper/schema/exports.go for use by the TF bridge
+- Enhanced `PlanResourceChange` functionality:
+  - Added `PlanResourceChangeExtra` function with instance diff transformation
+  - Added `TransformInstanceDiff` callback support
+- State upgrade functions made public:
+  - `UpgradeFlatmapState` and `UpgradeJSONState` exported for external use
+- Provider validation control:
+  - Added `RunProviderInternalValidation` flag to control when internal validation runs
+
+These changes maintain backward compatibility while extending the SDK's capabilities for Pulumi's specific use cases.
+
 ## Updating the fork
 
 When a new version of the terraform-plugin-sdk comes out, we need to update our fork. This is necessary to avoid build errors in newer providers.
@@ -23,3 +36,4 @@ To update our fork:
 5. Resolve any conflicts and push the new version.
 
 We do not use the `master` branch for this.
+
