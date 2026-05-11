@@ -46,7 +46,7 @@ func RunNewTest(t *testing.T, c TestCase, providers map[string]terraform.Resourc
 	wd.RequireSetConfig(t, providerCfg)
 	wd.RequireInit(t)
 
-	// use this to track last step succesfully applied
+	// use this to track last step successfully applied
 	// acts as default for import tests
 	var appliedCfg string
 
