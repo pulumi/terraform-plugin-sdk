@@ -4,6 +4,10 @@ FEATURES:
 
 * Added validation helper `RequiredWith` [GH-342]
 
+BUG FIXES:
+
+* Fix typo (succesfully -> successfully) in helper/resource testing_new.go comment [GH-44]
+
 # 1.9.1 (April 09, 2020)
 
 BUG FIXES:
